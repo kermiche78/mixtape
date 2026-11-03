@@ -196,9 +196,11 @@ struct PlayShuffleButtons: View {
     let shuffle: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            button("Lecture", icon: "play.fill", action: play)
-            button("Aléatoire", icon: "shuffle", action: shuffle)
+        GlassGroup(spacing: 14) {
+            HStack(spacing: 14) {
+                button("Lecture", icon: "play.fill", action: play)
+                button("Aléatoire", icon: "shuffle", action: shuffle)
+            }
         }
     }
 
@@ -207,11 +209,11 @@ struct PlayShuffleButtons: View {
             Label(title, systemImage: icon)
                 .font(.body.weight(.semibold))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
-                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(.vertical, 6)
                 .foregroundStyle(Color.accentPink)
         }
-        .buttonStyle(.plain)
+        .glassButton()
+        .controlSize(.large)
     }
 }
 
