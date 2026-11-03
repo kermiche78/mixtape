@@ -76,14 +76,47 @@ struct LibraryView: View {
 
 // MARK: - Albums
 
+enum SortOrder: String, CaseIterable, Identifiable {
+    case title = "Titre"
+    case artist = "Artiste"
+    case recent = "Ajout récent"
+    var id: String { rawValue }
+}
+
+struct SortMenu: View {
+    @Binding var order: SortOrder
+    var body: some View {
+        Menu {
+            Picker("Trier par", selection: $order) {
+                ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+        .accessibilityLabel("Trier")
+    }
+}
+
 struct AlbumsView: View {
     @EnvironmentObject private var library: LibraryStore
+    @AppStorage("albumSort") private var order: SortOrder = .title
     private let columns = [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
+
+    private var sorted: [Album] {
+        switch order {
+        case .title: return library.albums
+        case .artist: return library.albums.sorted {
+            let c = $0.artist.localizedCaseInsensitiveCompare($1.artist)
+            return c == .orderedSame ? $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending : c == .orderedAscending
+        }
+        case .recent: return library.albums.sorted { $0.latestAdded > $1.latestAdded }
+        }
+    }
 
     var body: some View {
         ScrollView {
             LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                ForEach(library.albums) { album in
+                ForEach(sorted) { album in
                     NavigationLink(value: album) { AlbumCell(album: album) }.buttonStyle(.plain)
                 }
             }
@@ -91,6 +124,7 @@ struct AlbumsView: View {
         }
         .overlay { if library.albums.isEmpty { EmptyLibraryView() } }
         .navigationTitle("Albums")
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu(order: $order) } }
         .refreshable { await library.refresh() }
     }
 }
@@ -217,9 +251,17 @@ struct ArtistDetailView: View {
 struct SongsView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
+    @AppStorage("songSort") private var order: SortOrder = .title
 
     private var sorted: [Track] {
-        library.tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        switch order {
+        case .title: return library.tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .artist: return library.tracks.sorted {
+            let c = $0.displayArtist.localizedCaseInsensitiveCompare($1.displayArtist)
+            return c == .orderedSame ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending : c == .orderedAscending
+        }
+        case .recent: return library.tracks.sorted { $0.createdAt > $1.createdAt }
+        }
     }
 
     var body: some View {
@@ -237,6 +279,7 @@ struct SongsView: View {
         .listStyle(.plain)
         .overlay { if songs.isEmpty { EmptyLibraryView() } }
         .navigationTitle("Morceaux")
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu(order: $order) } }
         .refreshable { await library.refresh() }
     }
 }
