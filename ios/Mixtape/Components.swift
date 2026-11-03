@@ -1,3 +1,4 @@
+import CoreImage
 import SwiftUI
 import UIKit
 
@@ -70,32 +71,62 @@ struct ArtworkView: View {
     }
 }
 
-/// Image chargée pour les fonds flous (lecteur plein écran).
+/// Couleur dominante d'une pochette (pour teinter les fonds).
+enum ArtworkColor {
+    private static let context = CIContext(options: [.workingColorSpace: NSNull()])
+
+    static func average(of image: UIImage) -> Color? {
+        guard let input = CIImage(image: image),
+              let filter = CIFilter(name: "CIAreaAverage",
+                                    parameters: [kCIInputImageKey: input, kCIInputExtentKey: CIVector(cgRect: input.extent)]),
+              let output = filter.outputImage else { return nil }
+        var px = [UInt8](repeating: 0, count: 4)
+        context.render(output, toBitmap: &px, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1)
+            .getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        // Couleur vive mais assez sombre pour que le texte blanc reste lisible.
+        return Color(hue: h, saturation: min(max(s * 1.3, 0.25), 0.85), brightness: min(max(b, 0.35), 0.6))
+    }
+}
+
+/// Fond du lecteur plein écran : dégradé aux couleurs de la pochette + pochette floutée.
 struct BlurredBackdrop: View {
     let url: URL?
     @State private var image: UIImage?
+    @State private var tint: Color = Color(white: 0.2)
+    @State private var drift = false
 
     var body: some View {
-        // L'image remplit le fond SANS dicter la taille de l'écran (sinon tout déborde).
-        Color(white: 0.12)
+        // Le fond remplit l'écran SANS dicter sa taille (sinon tout déborde).
+        LinearGradient(colors: [tint, tint.opacity(0.75), .black], startPoint: drift ? .topLeading : .top, endPoint: drift ? .bottomTrailing : .bottom)
             .overlay {
                 if let image {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                        .blur(radius: 70, opaque: true)
-                        .saturation(1.6)
-                        .overlay(Color.black.opacity(0.35))
+                        .blur(radius: 80, opaque: true)
+                        .saturation(1.5)
+                        .opacity(0.55)
+                        .blendMode(.plusLighter)
+                        .scaleEffect(drift ? 1.25 : 1.1)
                         .transition(.opacity)
                 }
             }
+            .overlay(Color.black.opacity(0.25))
             .clipped()
             .ignoresSafeArea()
-        .task(id: url) {
-            guard let url else { image = nil; return }
-            let loaded = await ImageLoader.shared.image(for: url)
-            withAnimation(.easeInOut(duration: 0.4)) { image = loaded }
-        }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 12).repeatForever(autoreverses: true)) { drift = true }
+            }
+            .task(id: url) {
+                guard let url else { image = nil; return }
+                let loaded = await ImageLoader.shared.image(for: url)
+                withAnimation(.easeInOut(duration: 0.6)) {
+                    image = loaded
+                    if let loaded, let c = ArtworkColor.average(of: loaded) { tint = c }
+                }
+            }
     }
 }
 
@@ -153,9 +184,15 @@ struct TrackMenu: View {
     var playlistContext: Playlist? = nil
 
     @ObservedObject private var downloads = DownloadManager.shared
+    @ObservedObject private var stats = Stats.shared
 
     var body: some View {
         Menu {
+            Button { stats.toggleFavorite(track) } label: {
+                stats.isFavorite(track)
+                    ? Label("Retirer des favoris", systemImage: "heart.slash")
+                    : Label("Ajouter aux favoris", systemImage: "heart")
+            }
             if downloads.isDownloaded(track) {
                 Button(role: .destructive) { downloads.remove([track]) } label: {
                     Label("Supprimer le téléchargement", systemImage: "trash")
