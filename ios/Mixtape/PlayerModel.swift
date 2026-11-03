@@ -24,14 +24,16 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
     @Published private(set) var isBuffering = false
+    /// Jusqu'où le son est déjà chargé (en secondes), comme la barre grise de YouTube.
+    @Published private(set) var bufferedTime: Double = 0
     @Published private(set) var shuffle = false
     @Published var repeatMode: RepeatMode = .off
     @Published var showNowPlaying = false
+    /// Derniers sons écoutés (du plus récent au plus ancien), gardés entre les lancements.
     /// Minuterie de mise en veille.
     @Published private(set) var sleepTimerEnd: Date?
     @Published private(set) var stopAtEndOfTrack = false
     private var sleepTask: Task<Void, Never>?
-    /// Derniers sons écoutés (du plus récent au plus ancien), gardés entre les lancements.
     @Published private(set) var recentlyPlayed: [String] = UserDefaults.standard.stringArray(forKey: "recentlyPlayed") ?? []
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
@@ -56,6 +58,7 @@ final class PlayerModel: ObservableObject {
                 guard let self, !self.isSeeking else { return }
                 self.currentTime = time.seconds.isFinite ? time.seconds : 0
                 if let d = self.player.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
+                self.bufferedTime = self.loadedEnd()
             }
         }
 
@@ -113,6 +116,20 @@ final class PlayerModel: ObservableObject {
         if queue.isEmpty { play([track]); return }
         queue.insert(track, at: index + 1)
         originalQueue.append(track)
+    }
+
+    /// Fin de la plage déjà téléchargée qui contient la position actuelle.
+    private func loadedEnd() -> Double {
+        guard let item = player.currentItem else { return 0 }
+        let now = player.currentTime().seconds
+        var best: Double = 0
+        for value in item.loadedTimeRanges {
+            let r = value.timeRangeValue
+            let start = r.start.seconds, end = (r.start + r.duration).seconds
+            guard start.isFinite, end.isFinite else { continue }
+            if start <= now + 1 { best = max(best, end) }
+        }
+        return best
     }
 
     func addToQueue(_ track: Track) {
@@ -258,6 +275,7 @@ final class PlayerModel: ObservableObject {
         let item = AVPlayerItem(url: url)
         rememberPlayed(track)
         player.replaceCurrentItem(with: item)
+        bufferedTime = 0
         currentTime = 0
         duration = track.duration
         if autoplay {
