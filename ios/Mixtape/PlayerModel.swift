@@ -27,6 +27,8 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var shuffle = false
     @Published var repeatMode: RepeatMode = .off
     @Published var showNowPlaying = false
+    /// Derniers sons écoutés (du plus récent au plus ancien), gardés entre les lancements.
+    @Published private(set) var recentlyPlayed: [String] = UserDefaults.standard.stringArray(forKey: "recentlyPlayed") ?? []
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
     var upNext: [Track] { queue.indices.contains(index + 1) ? Array(queue[(index + 1)...]) : [] }
@@ -190,8 +192,18 @@ final class PlayerModel: ObservableObject {
     }
 
     private func loadCurrent(autoplay: Bool) {
-        guard let track = current, let api = library?.api else { return }
-        let item = AVPlayerItem(url: api.streamURL(for: track))
+        guard let track = current else { return }
+        // Son téléchargé : lu depuis l'iPhone, sans réseau. Sinon : depuis le PC.
+        let url: URL
+        if let local = DownloadManager.shared.localURL(for: track) {
+            url = local
+        } else if let api = library?.api {
+            url = api.streamURL(for: track)
+        } else {
+            return
+        }
+        let item = AVPlayerItem(url: url)
+        rememberPlayed(track)
         player.replaceCurrentItem(with: item)
         currentTime = 0
         duration = track.duration
@@ -201,6 +213,13 @@ final class PlayerModel: ObservableObject {
         }
         updateNowPlayingInfo()
         loadArtwork(for: track)
+    }
+
+    private func rememberPlayed(_ track: Track) {
+        recentlyPlayed.removeAll { $0 == track.id }
+        recentlyPlayed.insert(track.id, at: 0)
+        if recentlyPlayed.count > 50 { recentlyPlayed.removeLast(recentlyPlayed.count - 50) }
+        UserDefaults.standard.set(recentlyPlayed, forKey: "recentlyPlayed")
     }
 
     // MARK: Système (écran verrouillé, centre de contrôle, écouteurs)
