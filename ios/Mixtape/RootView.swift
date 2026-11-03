@@ -21,31 +21,56 @@ struct MainTabs: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TabView {
-            NavigationStack { LibraryView() }
-                .miniPlayerInset()
-                .tabItem { Label("Bibliothèque", systemImage: "square.stack.fill") }
+        tabs
+            .sheet(isPresented: $player.showNowPlaying) {
+                NowPlayingView()
+            }
+            .alert("Oups", isPresented: Binding(get: { library.errorMessage != nil },
+                                                 set: { if !$0 { library.errorMessage = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(library.errorMessage ?? "")
+            }
+            .task { await library.refresh() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await library.refresh() } }
+            }
+    }
 
-            NavigationStack { SearchView() }
-                .miniPlayerInset()
-                .tabItem { Label("Recherche", systemImage: "magnifyingglass") }
+    @ViewBuilder
+    private var tabs: some View {
+        if #available(iOS 26.0, *) {
+            // iOS 26 : barre d'onglets en verre liquide, recherche à part,
+            // mini-lecteur posé au-dessus des onglets, barre qui se réduit au défilement.
+            TabView {
+                Tab("Bibliothèque", systemImage: "square.stack.fill") {
+                    NavigationStack { LibraryView() }
+                }
+                Tab("Réglages", systemImage: "gearshape.fill") {
+                    NavigationStack { SettingsView() }
+                }
+                Tab(role: .search) {
+                    NavigationStack { SearchView() }
+                }
+            }
+            .tabBarMinimizeBehavior(.onScrollDown)
+            .tabViewBottomAccessory {
+                GlassMiniPlayer()
+            }
+        } else {
+            TabView {
+                NavigationStack { LibraryView() }
+                    .miniPlayerInset()
+                    .tabItem { Label("Bibliothèque", systemImage: "square.stack.fill") }
 
-            NavigationStack { SettingsView() }
-                .miniPlayerInset()
-                .tabItem { Label("Réglages", systemImage: "gearshape.fill") }
-        }
-        .sheet(isPresented: $player.showNowPlaying) {
-            NowPlayingView()
-        }
-        .alert("Oups", isPresented: Binding(get: { library.errorMessage != nil },
-                                             set: { if !$0 { library.errorMessage = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(library.errorMessage ?? "")
-        }
-        .task { await library.refresh() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await library.refresh() } }
+                NavigationStack { SearchView() }
+                    .miniPlayerInset()
+                    .tabItem { Label("Recherche", systemImage: "magnifyingglass") }
+
+                NavigationStack { SettingsView() }
+                    .miniPlayerInset()
+                    .tabItem { Label("Réglages", systemImage: "gearshape.fill") }
+            }
         }
     }
 }
@@ -56,7 +81,51 @@ extension View {
     }
 }
 
-/// Le petit lecteur flottant au-dessus des onglets.
+/// Mini-lecteur d'iOS 26, dans la capsule de verre au-dessus des onglets.
+@available(iOS 26.0, *)
+struct GlassMiniPlayer: View {
+    @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var player: PlayerModel
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+
+    var body: some View {
+        let track = player.current
+        HStack(spacing: 10) {
+            ArtworkView(url: library.coverURL(track), cornerRadius: 6, placeholderSeed: track?.albumKey ?? "")
+                .frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(track?.title ?? "Pas de lecture")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if placement != .inline, let track {
+                    Text(track.displayArtist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 4)
+            Button { player.togglePlayPause() } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.title3)
+                    .frame(width: 36, height: 36)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .disabled(track == nil)
+            if placement != .inline {
+                Button { player.next() } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.body)
+                        .frame(width: 36, height: 36)
+                }
+                .disabled(track == nil)
+            }
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 12)
+        .contentShape(Rectangle())
+        .onTapGesture { if track != nil { player.showNowPlaying = true } }
+    }
+}
+
+/// Le petit lecteur flottant (iOS 17 et 18).
 struct MiniPlayerBar: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
@@ -88,8 +157,7 @@ struct MiniPlayerBar: View {
             .padding(.leading, 8)
             .padding(.trailing, 6)
             .padding(.vertical, 8)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.primary.opacity(0.06)))
+            .liquidGlass(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
             .contentShape(Rectangle())
             .onTapGesture { player.showNowPlaying = true }
@@ -164,10 +232,10 @@ struct LoginView: View {
                         if isConnecting { ProgressView().tint(.white) } else { Text("Se connecter").fontWeight(.semibold) }
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(Color.accentPink, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .foregroundStyle(.white)
+                    .padding(.vertical, 8)
                 }
+                .glassButton(prominent: true)
+                .controlSize(.large)
                 .disabled(isConnecting || address.isEmpty || password.isEmpty)
             }
             .padding(.horizontal, 24)
