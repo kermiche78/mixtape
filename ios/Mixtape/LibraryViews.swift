@@ -11,6 +11,7 @@ extension View {
                 case .artists: ArtistsView()
                 case .albums: AlbumsView()
                 case .songs: SongsView()
+                case .downloads: DownloadsView()
                 }
             }
             .navigationDestination(for: Album.self) { AlbumDetailView(albumID: $0.id) }
@@ -67,6 +68,7 @@ struct LibraryView: View {
             .padding(.bottom, 24)
         }
         .navigationTitle("Bibliothèque")
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { LibraryMenu() } }
         .refreshable { await library.refresh() }
         .libraryDestinations()
     }
@@ -136,6 +138,7 @@ struct AlbumDetailView: View {
             }
             .listStyle(.plain)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { DownloadAllButton(tracks: album.tracks) } }
         } else {
             ContentUnavailableView("Album introuvable", systemImage: "square.stack")
         }
