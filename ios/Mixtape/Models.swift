@@ -55,6 +55,7 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
     case artists = "Artistes"
     case albums = "Albums"
     case songs = "Morceaux"
+    case downloads = "Téléchargements"
 
     var id: String { rawValue }
 
@@ -64,6 +65,7 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
         case .artists: return "music.mic"
         case .albums: return "square.stack"
         case .songs: return "music.note"
+        case .downloads: return "arrow.down.circle"
         }
     }
 }
