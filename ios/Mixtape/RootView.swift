@@ -43,6 +43,9 @@ struct MainTabs: View {
             // iOS 26 : barre d'onglets en verre liquide, recherche à part,
             // mini-lecteur posé au-dessus des onglets, barre qui se réduit au défilement.
             TabView {
+                Tab("Accueil", systemImage: "house.fill") {
+                    NavigationStack { HomeView() }
+                }
                 Tab("Bibliothèque", systemImage: "square.stack.fill") {
                     NavigationStack { LibraryView() }
                 }
@@ -59,6 +62,10 @@ struct MainTabs: View {
             }
         } else {
             TabView {
+                NavigationStack { HomeView() }
+                    .miniPlayerInset()
+                    .tabItem { Label("Accueil", systemImage: "house.fill") }
+
                 NavigationStack { LibraryView() }
                     .miniPlayerInset()
                     .tabItem { Label("Bibliothèque", systemImage: "square.stack.fill") }
@@ -264,6 +271,7 @@ struct SettingsView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
     @State private var confirmLogout = false
+    @ObservedObject private var downloads = DownloadManager.shared
 
     var body: some View {
         List {
@@ -286,6 +294,12 @@ struct SettingsView: View {
                       systemImage: "info.circle")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+            Section("Téléchargements") {
+                LabeledContent("Sons téléchargés", value: "\(downloads.downloaded.count)")
+                LabeledContent("Espace utilisé", value: downloads.totalSize)
+                Button("Supprimer tous les téléchargements", role: .destructive) { downloads.removeAll() }
+                    .disabled(downloads.downloaded.isEmpty)
             }
             Section {
                 Button("Se déconnecter", role: .destructive) { confirmLogout = true }
