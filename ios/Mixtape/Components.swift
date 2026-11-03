@@ -76,19 +76,21 @@ struct BlurredBackdrop: View {
     @State private var image: UIImage?
 
     var body: some View {
-        ZStack {
-            Color(white: 0.12)
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .blur(radius: 70, opaque: true)
-                    .saturation(1.6)
-                    .overlay(Color.black.opacity(0.35))
-                    .transition(.opacity)
+        // L'image remplit le fond SANS dicter la taille de l'écran (sinon tout déborde).
+        Color(white: 0.12)
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .blur(radius: 70, opaque: true)
+                        .saturation(1.6)
+                        .overlay(Color.black.opacity(0.35))
+                        .transition(.opacity)
+                }
             }
-        }
-        .ignoresSafeArea()
+            .clipped()
+            .ignoresSafeArea()
         .task(id: url) {
             guard let url else { image = nil; return }
             let loaded = await ImageLoader.shared.image(for: url)
@@ -134,6 +136,13 @@ struct TrackRow: View {
             TrackMenu(track: track)
         }
         .contentShape(Rectangle())
+        // Balayer vers la droite : ajouter à la file d'attente.
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button { player.playNext(track) } label: { Label("Lire ensuite", systemImage: "text.line.first.and.arrowtriangle.forward") }
+                .tint(Color.accentPink)
+            Button { player.addToQueue(track) } label: { Label("À la fin", systemImage: "text.line.last.and.arrowtriangle.forward") }
+                .tint(.orange)
+        }
     }
 }
 
@@ -231,6 +240,8 @@ struct PlayShuffleButtons: View {
 
 struct AlbumCell: View {
     @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var player: PlayerModel
+    @ObservedObject private var downloads = DownloadManager.shared
     let album: Album
 
     var body: some View {
@@ -241,6 +252,33 @@ struct AlbumCell: View {
                 Text(album.name).font(.subheadline).lineLimit(1).foregroundStyle(.primary)
                 Text(album.artist).font(.subheadline).lineLimit(1).foregroundStyle(.secondary)
             }
+        }
+        .contentShape(Rectangle())
+        // Appui long : actions rapides sur l'album.
+        .contextMenu {
+            Button { player.play(album.tracks) } label: { Label("Lire", systemImage: "play.fill") }
+            Button { player.play(album.tracks, shuffled: true) } label: { Label("Lecture aléatoire", systemImage: "shuffle") }
+            Button { album.tracks.reversed().forEach { player.playNext($0) } } label: {
+                Label("Lire ensuite", systemImage: "text.line.first.and.arrowtriangle.forward")
+            }
+            Button { album.tracks.forEach { player.addToQueue($0) } } label: {
+                Label("Lire en dernier", systemImage: "text.line.last.and.arrowtriangle.forward")
+            }
+            Divider()
+            if album.tracks.allSatisfy({ downloads.isDownloaded($0) }) {
+                Button(role: .destructive) { downloads.remove(album.tracks) } label: { Label("Supprimer le téléchargement", systemImage: "trash") }
+            } else {
+                Button { downloads.download(album.tracks, api: library.api) } label: { Label("Télécharger", systemImage: "arrow.down.circle") }
+            }
+        } preview: {
+            VStack(alignment: .leading, spacing: 8) {
+                ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 12, placeholderSeed: album.id)
+                    .frame(width: 260, height: 260)
+                Text(album.name).font(.headline)
+                Text("\(album.artist) · \(album.tracks.count) morceau\(album.tracks.count > 1 ? "x" : "")")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            .padding(16)
         }
     }
 }
