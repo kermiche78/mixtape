@@ -28,6 +28,10 @@ final class PlayerModel: ObservableObject {
     @Published var repeatMode: RepeatMode = .off
     @Published var showNowPlaying = false
     /// Derniers sons écoutés (du plus récent au plus ancien), gardés entre les lancements.
+    /// Minuterie de mise en veille.
+    @Published private(set) var sleepTimerEnd: Date?
+    @Published private(set) var stopAtEndOfTrack = false
+    private var sleepTask: Task<Void, Never>?
     @Published private(set) var recentlyPlayed: [String] = UserDefaults.standard.stringArray(forKey: "recentlyPlayed") ?? []
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
@@ -182,7 +186,56 @@ final class PlayerModel: ObservableObject {
 
     func cycleRepeat() { repeatMode = repeatMode.next }
 
+    // MARK: File d'attente modifiable
+
+    func removeFromUpNext(at offsets: IndexSet) {
+        for i in offsets.map({ index + 1 + $0 }).sorted(by: >) where queue.indices.contains(i) {
+            let t = queue.remove(at: i)
+            if let j = originalQueue.firstIndex(of: t) { originalQueue.remove(at: j) }
+        }
+    }
+
+    func moveUpNext(from source: IndexSet, to destination: Int) {
+        guard queue.indices.contains(index) else { return }
+        var up = upNext
+        up.move(fromOffsets: source, toOffset: destination)
+        queue = Array(queue[...index]) + up
+    }
+
+    func clearUpNext() {
+        guard queue.indices.contains(index) else { return }
+        queue = Array(queue[...index])
+        originalQueue = queue
+    }
+
+    // MARK: Minuterie
+
+    func setSleepTimer(minutes: Int?) {
+        sleepTask?.cancel()
+        stopAtEndOfTrack = false
+        guard let minutes else { sleepTimerEnd = nil; return }
+        sleepTimerEnd = Date().addingTimeInterval(Double(minutes) * 60)
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Double(minutes) * 60))
+            guard !Task.isCancelled else { return }
+            self?.player.pause()
+            self?.sleepTimerEnd = nil
+        }
+    }
+
+    func sleepAtEndOfTrack() {
+        sleepTask?.cancel()
+        sleepTimerEnd = nil
+        stopAtEndOfTrack = true
+    }
+
     private func trackDidEnd() {
+        if stopAtEndOfTrack {
+            stopAtEndOfTrack = false
+            player.pause()
+            seek(to: 0)
+            return
+        }
         if repeatMode == .one {
             seek(to: 0)
             player.play()
