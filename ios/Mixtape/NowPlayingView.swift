@@ -62,7 +62,7 @@ struct NowPlayingView: View {
                 }
                 .padding(.top, 24)
 
-                Scrubber(value: player.currentTime, total: max(player.duration, 0.1)) { player.seek(to: $0) }
+                Scrubber(value: player.currentTime, total: max(player.duration, 0.1), buffered: player.bufferedTime) { player.seek(to: $0) }
                     .padding(.top, 18)
 
                 // Commandes
@@ -192,6 +192,7 @@ private struct PressableStyle: ButtonStyle {
 struct Scrubber: View {
     let value: Double
     let total: Double
+    var buffered: Double = 0
     let onSeek: (Double) -> Void
 
     @State private var dragValue: Double?
@@ -202,7 +203,11 @@ struct Scrubber: View {
         VStack(spacing: 6) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.22))
+                    Capsule().fill(.white.opacity(0.18))
+                    // Partie déjà chargée (gris clair), qui avance pendant le chargement.
+                    Capsule().fill(.white.opacity(0.38))
+                        .frame(width: geo.size.width * min(max(buffered / total, 0), 1))
+                        .animation(.linear(duration: 0.5), value: buffered)
                     Capsule().fill(.white.opacity(dragValue == nil ? 0.75 : 1))
                         .frame(width: geo.size.width * progress)
                 }
