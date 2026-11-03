@@ -27,11 +27,11 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var shuffle = false
     @Published var repeatMode: RepeatMode = .off
     @Published var showNowPlaying = false
-    /// Derniers sons écoutés (du plus récent au plus ancien), gardés entre les lancements.
     /// Minuterie de mise en veille.
     @Published private(set) var sleepTimerEnd: Date?
     @Published private(set) var stopAtEndOfTrack = false
     private var sleepTask: Task<Void, Never>?
+    /// Derniers sons écoutés (du plus récent au plus ancien), gardés entre les lancements.
     @Published private(set) var recentlyPlayed: [String] = UserDefaults.standard.stringArray(forKey: "recentlyPlayed") ?? []
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
@@ -269,6 +269,7 @@ final class PlayerModel: ObservableObject {
     }
 
     private func rememberPlayed(_ track: Track) {
+        Stats.shared.countPlay(track)
         recentlyPlayed.removeAll { $0 == track.id }
         recentlyPlayed.insert(track.id, at: 0)
         if recentlyPlayed.count > 50 { recentlyPlayed.removeLast(recentlyPlayed.count - 50) }
