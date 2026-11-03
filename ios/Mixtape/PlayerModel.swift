@@ -31,6 +31,15 @@ final class PlayerModel: ObservableObject {
     @Published var showNowPlaying = false
     /// Demande d'ouvrir une page depuis le lecteur (artiste ou album du son en cours).
     @Published var navRequest: NavRequest?
+    /// Où tu t'es arrêté dans chaque album (pour « Reprendre »), gardé entre les lancements.
+    @Published private(set) var albumProgress: [String: AlbumProgress] = {
+        guard let data = UserDefaults.standard.data(forKey: "albumProgress"),
+              let saved = try? JSONDecoder().decode([String: AlbumProgress].self, from: data) else { return [:] }
+        return saved
+    }()
+    private var lastSavedSecond = -1
+    private var pendingResume: Double = 0
+    private var resumeObserver: AnyCancellable?
     /// Derniers sons écoutés (du plus récent au plus ancien), gardés entre les lancements.
     /// Minuterie de mise en veille.
     @Published private(set) var sleepTimerEnd: Date?
@@ -61,6 +70,9 @@ final class PlayerModel: ObservableObject {
                 self.currentTime = time.seconds.isFinite ? time.seconds : 0
                 if let d = self.player.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
                 self.bufferedTime = self.loadedEnd()
+                // Mémorise la position toutes les 5 secondes.
+                let s = Int(self.currentTime)
+                if s % 5 == 0, s != self.lastSavedSecond { self.lastSavedSecond = s; self.saveAlbumProgress() }
             }
         }
 
@@ -70,6 +82,7 @@ final class PlayerModel: ObservableObject {
                 guard let self else { return }
                 self.isPlaying = status == .playing || status == .waitingToPlayAtSpecifiedRate
                 self.isBuffering = status == .waitingToPlayAtSpecifiedRate
+                if status == .paused { self.saveAlbumProgress() }
                 self.updateNowPlayingInfo()
             }
             .store(in: &cancellables)
@@ -97,7 +110,14 @@ final class PlayerModel: ObservableObject {
 
     // MARK: Lecture
 
-    func play(_ tracks: [Track], startAt startIndex: Int = 0, shuffled: Bool = false) {
+    /// Reprend un album là où tu t'étais arrêté.
+    func resume(_ album: Album) {
+        guard let p = albumProgress[album.id],
+              let i = album.tracks.firstIndex(where: { $0.id == p.trackId }) else { play(album.tracks); return }
+        play(album.tracks, startAt: i, resumeAt: p.time)
+    }
+
+    func play(_ tracks: [Track], startAt startIndex: Int = 0, shuffled: Bool = false, resumeAt: Double = 0) {
         guard !tracks.isEmpty else { return }
         originalQueue = tracks
         if shuffled {
@@ -111,6 +131,7 @@ final class PlayerModel: ObservableObject {
             shuffle = false
         }
         index = shuffled ? 0 : min(max(startIndex, 0), tracks.count - 1)
+        pendingResume = resumeAt > 1 ? resumeAt : 0
         loadCurrent(autoplay: true)
     }
 
@@ -249,6 +270,11 @@ final class PlayerModel: ObservableObject {
     }
 
     private func trackDidEnd() {
+        // Dernier son de l'album terminé : plus rien à reprendre.
+        if let track = current, let album = library?.album(for: track), album.tracks.last?.id == track.id {
+            albumProgress[album.id] = nil
+            persistAlbumProgress()
+        }
         if stopAtEndOfTrack {
             stopAtEndOfTrack = false
             player.pause()
@@ -277,6 +303,16 @@ final class PlayerModel: ObservableObject {
         let item = AVPlayerItem(url: url)
         rememberPlayed(track)
         player.replaceCurrentItem(with: item)
+        // Reprise : on se place au bon endroit dès que le son est prêt.
+        resumeObserver = nil
+        if pendingResume > 0 {
+            let target = pendingResume
+            pendingResume = 0
+            resumeObserver = item.publisher(for: \.status)
+                .receive(on: DispatchQueue.main)
+                .first { $0 == .readyToPlay }
+                .sink { [weak self] _ in self?.seek(to: target) }
+        }
         bufferedTime = 0
         currentTime = 0
         duration = track.duration
@@ -286,6 +322,16 @@ final class PlayerModel: ObservableObject {
         }
         updateNowPlayingInfo()
         loadArtwork(for: track)
+    }
+
+    private func saveAlbumProgress() {
+        guard let track = current, !track.albumKey.hasPrefix("single:") else { return }
+        albumProgress[track.albumKey] = AlbumProgress(trackId: track.id, time: currentTime, updatedAt: Date().timeIntervalSince1970)
+        persistAlbumProgress()
+    }
+
+    private func persistAlbumProgress() {
+        if let data = try? JSONEncoder().encode(albumProgress) { UserDefaults.standard.set(data, forKey: "albumProgress") }
     }
 
     private func rememberPlayed(_ track: Track) {
@@ -370,4 +416,11 @@ final class PlayerModel: ObservableObject {
 enum NavRequest: Equatable {
     case artist(String)
     case album(String)
+}
+
+/// Position mémorisée dans un album.
+struct AlbumProgress: Codable, Equatable {
+    var trackId: String
+    var time: Double
+    var updatedAt: Double
 }
