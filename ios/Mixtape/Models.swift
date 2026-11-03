@@ -51,6 +51,7 @@ struct Playlist: Identifiable, Codable, Hashable {
 }
 
 enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
+    case favorites = "Favoris"
     case playlists = "Playlists"
     case artists = "Artistes"
     case albums = "Albums"
@@ -61,6 +62,7 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .favorites: return "heart"
         case .playlists: return "music.note.list"
         case .artists: return "music.mic"
         case .albums: return "square.stack"
