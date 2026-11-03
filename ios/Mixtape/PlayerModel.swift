@@ -1,0 +1,274 @@
+import AVFoundation
+import Combine
+import MediaPlayer
+import UIKit
+
+enum RepeatMode {
+    case off, all, one
+
+    var icon: String { self == .one ? "repeat.1" : "repeat" }
+    var next: RepeatMode {
+        switch self {
+        case .off: return .all
+        case .all: return .one
+        case .one: return .off
+        }
+    }
+}
+
+@MainActor
+final class PlayerModel: ObservableObject {
+    @Published private(set) var queue: [Track] = []
+    @Published private(set) var index: Int = 0
+    @Published private(set) var isPlaying = false
+    @Published private(set) var currentTime: Double = 0
+    @Published private(set) var duration: Double = 0
+    @Published private(set) var isBuffering = false
+    @Published private(set) var shuffle = false
+    @Published var repeatMode: RepeatMode = .off
+    @Published var showNowPlaying = false
+
+    var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
+    var upNext: [Track] { queue.indices.contains(index + 1) ? Array(queue[(index + 1)...]) : [] }
+
+    weak var library: LibraryStore?
+
+    private let player = AVPlayer()
+    private var originalQueue: [Track] = []
+    private var timeObserver: Any?
+    private var cancellables = Set<AnyCancellable>()
+    private var artworkCache: [String: UIImage] = [:]
+    private var isSeeking = false
+
+    init() {
+        player.automaticallyWaitsToMinimizeStalling = true
+        configureAudioSession()
+        configureRemoteCommands()
+
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
+            Task { @MainActor in
+                guard let self, !self.isSeeking else { return }
+                self.currentTime = time.seconds.isFinite ? time.seconds : 0
+                if let d = self.player.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
+            }
+        }
+
+        player.publisher(for: \.timeControlStatus)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self else { return }
+                self.isPlaying = status == .playing || status == .waitingToPlayAtSpecifiedRate
+                self.isBuffering = status == .waitingToPlayAtSpecifiedRate
+                self.updateNowPlayingInfo()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] note in
+                guard let self, (note.object as? AVPlayerItem) === self.player.currentItem else { return }
+                self.trackDidEnd()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] note in
+                guard let self,
+                      let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      AVAudioSession.InterruptionType(rawValue: raw) == .ended,
+                      let optRaw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt,
+                      AVAudioSession.InterruptionOptions(rawValue: optRaw).contains(.shouldResume) else { return }
+                self.player.play()
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: Lecture
+
+    func play(_ tracks: [Track], startAt startIndex: Int = 0, shuffled: Bool = false) {
+        guard !tracks.isEmpty else { return }
+        originalQueue = tracks
+        if shuffled {
+            var rest = tracks
+            let pick = startIndex == 0 ? Int.random(in: 0..<rest.count) : min(startIndex, rest.count - 1)
+            let first = rest.remove(at: pick)
+            queue = [first] + rest.shuffled()
+            shuffle = true
+        } else {
+            queue = tracks
+            shuffle = false
+        }
+        index = shuffled ? 0 : min(max(startIndex, 0), tracks.count - 1)
+        loadCurrent(autoplay: true)
+    }
+
+    func playNext(_ track: Track) {
+        if queue.isEmpty { play([track]); return }
+        queue.insert(track, at: index + 1)
+        originalQueue.append(track)
+    }
+
+    func addToQueue(_ track: Track) {
+        if queue.isEmpty { play([track]); return }
+        queue.append(track)
+        originalQueue.append(track)
+    }
+
+    func jump(to track: Track) {
+        guard let i = queue.firstIndex(of: track) else { return }
+        index = i
+        loadCurrent(autoplay: true)
+    }
+
+    func togglePlayPause() {
+        guard current != nil else { return }
+        if isPlaying { player.pause() } else {
+            if player.currentItem == nil { loadCurrent(autoplay: true) } else { player.play() }
+        }
+    }
+
+    func next() {
+        guard !queue.isEmpty else { return }
+        if index + 1 < queue.count {
+            index += 1
+        } else if repeatMode == .all {
+            index = 0
+        } else {
+            player.pause()
+            seek(to: 0)
+            return
+        }
+        loadCurrent(autoplay: true)
+    }
+
+    func previous() {
+        guard !queue.isEmpty else { return }
+        if currentTime > 3 || index == 0 {
+            seek(to: 0)
+            return
+        }
+        index -= 1
+        loadCurrent(autoplay: true)
+    }
+
+    func seek(to seconds: Double) {
+        isSeeking = true
+        currentTime = seconds
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in
+                self?.isSeeking = false
+                self?.updateNowPlayingInfo()
+            }
+        }
+    }
+
+    func toggleShuffle() {
+        guard let current else { shuffle.toggle(); return }
+        if shuffle {
+            queue = originalQueue
+            index = originalQueue.firstIndex(of: current) ?? 0
+            shuffle = false
+        } else {
+            var rest = queue
+            rest.remove(at: index)
+            queue = [current] + rest.shuffled()
+            index = 0
+            shuffle = true
+        }
+    }
+
+    func cycleRepeat() { repeatMode = repeatMode.next }
+
+    private func trackDidEnd() {
+        if repeatMode == .one {
+            seek(to: 0)
+            player.play()
+        } else {
+            next()
+        }
+    }
+
+    private func loadCurrent(autoplay: Bool) {
+        guard let track = current, let api = library?.api else { return }
+        let item = AVPlayerItem(url: api.streamURL(for: track))
+        player.replaceCurrentItem(with: item)
+        currentTime = 0
+        duration = track.duration
+        if autoplay {
+            try? AVAudioSession.sharedInstance().setActive(true)
+            player.play()
+        }
+        updateNowPlayingInfo()
+        loadArtwork(for: track)
+    }
+
+    // MARK: Système (écran verrouillé, centre de contrôle, écouteurs)
+
+    private func configureAudioSession() {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
+    }
+
+    private func configureRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.player.play() }
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.player.pause() }
+            return .success
+        }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.togglePlayPause() }
+            return .success
+        }
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.next() }
+            return .success
+        }
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.previous() }
+            return .success
+        }
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            Task { @MainActor in self?.seek(to: e.positionTime) }
+            return .success
+        }
+    }
+
+    private func updateNowPlayingInfo() {
+        guard let track = current else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.title,
+            MPMediaItemPropertyArtist: track.displayArtist,
+            MPMediaItemPropertyAlbumTitle: track.displayAlbum,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+        ]
+        if let image = artworkCache[track.id] {
+            info[MPMediaItemPropertyArtwork] = Self.makeArtwork(image)
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// Hors du MainActor : iOS appelle ce bloc depuis un autre fil d'exécution.
+    nonisolated private static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+
+    private func loadArtwork(for track: Track) {
+        guard artworkCache[track.id] == nil, let url = library?.coverURL(track) else { return }
+        Task {
+            if let image = await ImageLoader.shared.image(for: url) {
+                artworkCache[track.id] = image
+                if current?.id == track.id { updateNowPlayingInfo() }
+            }
+        }
+    }
+}
