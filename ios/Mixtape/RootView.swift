@@ -110,10 +110,16 @@ struct GlassMiniPlayer: View {
             }
             Spacer(minLength: 4)
             Button { player.togglePlayPause() } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3)
-                    .frame(width: 36, height: 36)
-                    .contentTransition(.symbolEffect(.replace))
+                Group {
+                    if player.isBuffering {
+                        ProgressView()
+                    } else {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.title3)
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                }
+                .frame(width: 36, height: 36)
             }
             .disabled(track == nil)
             if placement != .inline {
@@ -127,6 +133,9 @@ struct GlassMiniPlayer: View {
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 12)
+        .overlay(alignment: .bottom) {
+            if track != nil, placement != .inline { MiniProgressLine().padding(.horizontal, 18) }
+        }
         .contentShape(Rectangle())
         .onTapGesture { if track != nil { player.showNowPlaying = true } }
     }
@@ -149,10 +158,16 @@ struct MiniPlayerBar: View {
                 }
                 Spacer(minLength: 4)
                 Button { player.togglePlayPause() } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title2)
-                        .frame(width: 40, height: 40)
-                        .contentTransition(.symbolEffect(.replace))
+                    Group {
+                        if player.isBuffering {
+                            ProgressView()
+                        } else {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.title2)
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                    }
+                    .frame(width: 40, height: 40)
                 }
                 Button { player.next() } label: {
                     Image(systemName: "forward.fill")
@@ -164,6 +179,7 @@ struct MiniPlayerBar: View {
             .padding(.leading, 8)
             .padding(.trailing, 6)
             .padding(.vertical, 8)
+            .overlay(alignment: .bottom) { MiniProgressLine().padding(.horizontal, 14).padding(.bottom, 3) }
             .liquidGlass(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
             .contentShape(Rectangle())
@@ -312,5 +328,26 @@ struct SettingsView: View {
         .confirmationDialog("Se déconnecter du serveur ?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Se déconnecter", role: .destructive) { library.disconnect() }
         }
+    }
+}
+
+/// Fine ligne sous le mini-lecteur : partie chargée (gris) et partie écoutée (rose).
+struct MiniProgressLine: View {
+    @EnvironmentObject private var player: PlayerModel
+
+    var body: some View {
+        let total = max(player.duration, 0.1)
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.10))
+                Capsule().fill(Color.primary.opacity(0.25))
+                    .frame(width: geo.size.width * min(max(player.bufferedTime / total, 0), 1))
+                    .animation(.linear(duration: 0.5), value: player.bufferedTime)
+                Capsule().fill(Color.accentPink)
+                    .frame(width: geo.size.width * min(max(player.currentTime / total, 0), 1))
+            }
+        }
+        .frame(height: 2.5)
+        .allowsHitTesting(false)
     }
 }
