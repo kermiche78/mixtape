@@ -212,6 +212,13 @@ struct TrackMenu: View {
                     Button(p.name) { Task { await library.add(track, to: p) } }
                 }
             } label: { Label("Ajouter à une playlist", systemImage: "text.badge.plus") }
+            Divider()
+            Button { player.navRequest = .album(track.albumKey) } label: {
+                Label(track.albumKey.hasPrefix("single:") ? "Aller au single" : "Aller à l'album", systemImage: "square.stack")
+            }
+            Button { player.navRequest = .artist(library.album(for: track)?.artist ?? track.artist) } label: {
+                Label("Aller à l'artiste", systemImage: "music.mic")
+            }
             if let playlistContext {
                 Button(role: .destructive) {
                     var p = playlistContext
