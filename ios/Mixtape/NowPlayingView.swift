@@ -51,6 +51,9 @@ struct NowPlayingView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if let track {
+                        FavoriteButton(track: track, size: 20)
+                            .frame(width: 36, height: 36)
+                            .liquidGlass(in: Circle(), interactive: true)
                         TrackMenu(track: track)
                             .tint(.white)
                             .frame(width: 36, height: 36)
