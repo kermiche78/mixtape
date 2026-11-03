@@ -146,6 +146,7 @@ struct AlbumDetailView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     header(album)
+                    resumeCard(album)
                     tracks(album)
                     footer(album)
                 }
@@ -234,6 +235,38 @@ struct AlbumDetailView: View {
             .padding(.bottom, 22)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// « Reprendre la lecture de l'album », comme YouTube Music.
+    @ViewBuilder
+    private func resumeCard(_ album: Album) -> some View {
+        let playingThis = player.current.map { $0.albumKey == album.id } ?? false
+        if !playingThis,
+           let p = player.albumProgress[album.id],
+           let i = album.tracks.firstIndex(where: { $0.id == p.trackId }),
+           i > 0 || p.time > 15 {
+            let track = album.tracks[i]
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Reprendre la lecture de l'album").font(.headline)
+                    Text("\(track.trackNumber ?? i + 1). \(track.title) · \(formatTime(p.time))")
+                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Button { player.resume(album) } label: {
+                    Text("Reprendre")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(.white, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(16)
+            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, 20)
+            .padding(.bottom, 18)
+        }
     }
 
     private func circleButton(_ icon: String, action: @escaping () -> Void) -> some View {
