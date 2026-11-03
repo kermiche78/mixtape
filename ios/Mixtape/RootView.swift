@@ -19,6 +19,8 @@ struct MainTabs: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
     @Environment(\.scenePhase) private var scenePhase
+    @State private var tab = 0
+    @State private var paths: [NavigationPath] = Array(repeating: NavigationPath(), count: 4)
 
     var body: some View {
         tabs
@@ -35,6 +37,33 @@ struct MainTabs: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await library.refresh() } }
             }
+            .onChange(of: player.navRequest) { _, request in
+                guard let request else { return }
+                player.navRequest = nil
+                open(request)
+            }
+    }
+
+    /// Ferme le lecteur puis ouvre la page de l'artiste ou de l'album dans l'onglet en cours.
+    private func open(_ request: NavRequest) {
+        let artist: Artist?
+        let album: Album?
+        switch request {
+        case .artist(let name):
+            artist = library.artist(named: name); album = nil
+        case .album(let id):
+            artist = nil; album = library.albums.first { $0.id == id }
+        }
+        guard artist != nil || album != nil else { return }
+        player.showNowPlaying = false
+        // L'onglet Réglages n'a pas de pages musique : on passe sur Bibliothèque.
+        if tab == 2 { tab = 1 }
+        let target = tab
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            if let artist { paths[target].append(artist) }
+            if let album { paths[target].append(album) }
+        }
     }
 
     @ViewBuilder
@@ -42,18 +71,18 @@ struct MainTabs: View {
         if #available(iOS 26.0, *) {
             // iOS 26 : barre d'onglets en verre liquide, recherche à part,
             // mini-lecteur posé au-dessus des onglets, barre qui se réduit au défilement.
-            TabView {
-                Tab("Accueil", systemImage: "house.fill") {
-                    NavigationStack { HomeView() }
+            TabView(selection: $tab) {
+                Tab("Accueil", systemImage: "house.fill", value: 0) {
+                    NavigationStack(path: $paths[0]) { HomeView() }
                 }
-                Tab("Bibliothèque", systemImage: "square.stack.fill") {
-                    NavigationStack { LibraryView() }
+                Tab("Bibliothèque", systemImage: "square.stack.fill", value: 1) {
+                    NavigationStack(path: $paths[1]) { LibraryView() }
                 }
-                Tab("Réglages", systemImage: "gearshape.fill") {
-                    NavigationStack { SettingsView() }
+                Tab("Réglages", systemImage: "gearshape.fill", value: 2) {
+                    NavigationStack(path: $paths[2]) { SettingsView() }
                 }
-                Tab(role: .search) {
-                    NavigationStack { SearchView() }
+                Tab(value: 3, role: .search) {
+                    NavigationStack(path: $paths[3]) { SearchView() }
                 }
             }
             .tabBarMinimizeBehavior(.onScrollDown)
@@ -61,22 +90,26 @@ struct MainTabs: View {
                 GlassMiniPlayer()
             }
         } else {
-            TabView {
-                NavigationStack { HomeView() }
+            TabView(selection: $tab) {
+                NavigationStack(path: $paths[0]) { HomeView() }
                     .miniPlayerInset()
                     .tabItem { Label("Accueil", systemImage: "house.fill") }
+                    .tag(0)
 
-                NavigationStack { LibraryView() }
+                NavigationStack(path: $paths[1]) { LibraryView() }
                     .miniPlayerInset()
                     .tabItem { Label("Bibliothèque", systemImage: "square.stack.fill") }
+                    .tag(1)
 
-                NavigationStack { SearchView() }
+                NavigationStack(path: $paths[3]) { SearchView() }
                     .miniPlayerInset()
                     .tabItem { Label("Recherche", systemImage: "magnifyingglass") }
+                    .tag(3)
 
-                NavigationStack { SettingsView() }
+                NavigationStack(path: $paths[2]) { SettingsView() }
                     .miniPlayerInset()
                     .tabItem { Label("Réglages", systemImage: "gearshape.fill") }
+                    .tag(2)
             }
         }
     }
