@@ -18,6 +18,8 @@ extension View {
             .navigationDestination(for: Album.self) { AlbumDetailView(albumID: $0.id) }
             .navigationDestination(for: Artist.self) { ArtistDetailView(name: $0.name) }
             .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlistID: $0.id) }
+            .navigationDestination(for: DiscographyRoute.self) { DiscographyView(route: $0) }
+            .navigationDestination(for: ArtistSongsRoute.self) { ArtistSongsView(artistName: $0.artist) }
     }
 }
 
@@ -338,6 +340,26 @@ extension Album {
     }
 }
 
+/// Routes « Tout voir » (navigation par valeur, pour éviter les retours en arrière intempestifs).
+struct DiscographyRoute: Hashable { let artist: String; let kind: ReleaseKind }
+struct ArtistSongsRoute: Hashable { let artist: String }
+
+extension Artist {
+    @MainActor func releases(_ kind: ReleaseKind) -> [Album] {
+        let stats = Stats.shared
+        switch kind {
+        case .popular:
+            return albums.sorted { a, b in
+                let pa = a.tracks.reduce(0) { $0 + stats.plays($1) }
+                let pb = b.tracks.reduce(0) { $0 + stats.plays($1) }
+                return pa == pb ? a.latestAdded > b.latestAdded : pa > pb
+            }
+        case .albums: return albums.filter(\.isFullAlbum).sorted { $0.latestAdded > $1.latestAdded }
+        case .eps: return albums.filter { !$0.isFullAlbum }.sorted { $0.latestAdded > $1.latestAdded }
+        }
+    }
+}
+
 private struct HeaderOffsetKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
@@ -348,7 +370,7 @@ struct ArtistDetailView: View {
     @EnvironmentObject private var player: PlayerModel
     @ObservedObject private var stats = Stats.shared
     @State private var filter: ReleaseKind = .popular
-    @State private var headerOffset: CGFloat = 0
+    @State private var collapsed = false
     let name: String
 
     private var artist: Artist? { library.artist(named: name) }
@@ -356,6 +378,7 @@ struct ArtistDetailView: View {
 
     var body: some View {
         if let artist {
+          ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     hero(artist)
@@ -364,9 +387,7 @@ struct ArtistDetailView: View {
                     let topSongs = top.isEmpty ? Array(artist.tracks.prefix(5)) : top
                     if !topSongs.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
-                            sectionTitle("Top titres") {
-                                SongListView(title: "Titres de \(artist.name)", tracks: artist.tracks)
-                            }
+                            sectionTitle("Top titres", value: ArtistSongsRoute(artist: artist.name))
                             LazyVStack(spacing: 0) {
                                 ForEach(Array(topSongs.enumerated()), id: \.element.id) { i, track in
                                     HStack(spacing: 12) {
@@ -387,11 +408,27 @@ struct ArtistDetailView: View {
                 .padding(.bottom, 30)
             }
             .coordinateSpace(name: "artistScroll")
-            .onPreferenceChange(HeaderOffsetKey.self) { headerOffset = $0 }
+            .onPreferenceChange(HeaderOffsetKey.self) { y in
+                let c = y < -(heroHeight - 110)
+                if c != collapsed { withAnimation(.easeInOut(duration: 0.2)) { collapsed = c } }
+            }
             .ignoresSafeArea(edges: .top)
-            .navigationTitle(collapsed ? artist.name : "")
+
+            // Barre compacte avec le nom, qui apparaît quand la photo est passée.
+            if collapsed {
+                Text(artist.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .padding(.horizontal, 70)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(.bar, ignoresSafeAreaEdges: .top)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
+          }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(collapsed ? .visible : .hidden, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -406,13 +443,10 @@ struct ArtistDetailView: View {
                     } label: { Image(systemName: "ellipsis") }
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: collapsed)
         } else {
             ContentUnavailableView("Artiste introuvable", systemImage: "music.mic")
         }
     }
-
-    private var collapsed: Bool { headerOffset < -(heroHeight - 140) }
 
     // Grande photo de l'artiste, nom en bas à gauche, bouton lecture en bas à droite.
     private func hero(_ artist: Artist) -> some View {
@@ -458,39 +492,23 @@ struct ArtistDetailView: View {
         .frame(height: heroHeight)
     }
 
-    private func sectionTitle<D: View>(_ title: String, @ViewBuilder destination: () -> D) -> some View {
-        let dest = destination()
-        return HStack(alignment: .firstTextBaseline) {
+    private func sectionTitle<V: Hashable>(_ title: String, value: V) -> some View {
+        HStack(alignment: .firstTextBaseline) {
             Text(title).font(.title2.bold())
             Spacer()
-            NavigationLink { dest } label: {
+            NavigationLink(value: value) {
                 Text("Tout voir").font(.body.weight(.medium)).foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
         }
     }
 
-    private func releases(_ artist: Artist, _ kind: ReleaseKind) -> [Album] {
-        switch kind {
-        case .popular:
-            return artist.albums.sorted { a, b in
-                let pa = a.tracks.reduce(0) { $0 + stats.plays($1) }
-                let pb = b.tracks.reduce(0) { $0 + stats.plays($1) }
-                return pa == pb ? a.latestAdded > b.latestAdded : pa > pb
-            }
-        case .albums: return artist.albums.filter(\.isFullAlbum).sorted { $0.latestAdded > $1.latestAdded }
-        case .eps: return artist.albums.filter { !$0.isFullAlbum }.sorted { $0.latestAdded > $1.latestAdded }
-        }
-    }
-
     // « Discographie » : filtres en pastilles + grille 2 colonnes.
     private func discography(_ artist: Artist) -> some View {
-        let kinds = ReleaseKind.allCases.filter { $0 == .popular || !releases(artist, $0).isEmpty }
-        let list = releases(artist, filter)
+        let kinds = ReleaseKind.allCases.filter { $0 == .popular || !artist.releases($0).isEmpty }
+        let list = artist.releases(filter)
         return VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Discographie") {
-                DiscographyView(artistName: artist.name, albums: list, title: filter.rawValue)
-            }
+            sectionTitle("Discographie", value: DiscographyRoute(artist: artist.name, kind: filter))
             .padding(.horizontal, 20)
 
             if kinds.count > 1 {
@@ -549,26 +567,26 @@ struct ReleaseGrid: View {
 
 /// « Tout voir » de la discographie.
 struct DiscographyView: View {
-    let artistName: String
-    let albums: [Album]
-    let title: String
+    @EnvironmentObject private var library: LibraryStore
+    let route: DiscographyRoute
 
     var body: some View {
         ScrollView {
-            ReleaseGrid(albums: albums).padding(20)
+            ReleaseGrid(albums: library.artist(named: route.artist)?.releases(route.kind) ?? []).padding(20)
         }
-        .navigationTitle(title)
+        .navigationTitle(route.kind.rawValue)
         .navigationBarTitleDisplayMode(.large)
     }
 }
 
 /// « Tout voir » des titres d'un artiste.
-struct SongListView: View {
+struct ArtistSongsView: View {
+    @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
-    let title: String
-    let tracks: [Track]
+    let artistName: String
 
     var body: some View {
+        let tracks = library.artist(named: artistName)?.tracks ?? []
         List {
             PlayShuffleButtons(play: { player.play(tracks) }, shuffle: { player.play(tracks, shuffled: true) })
                 .listRowSeparator(.hidden)
@@ -577,7 +595,7 @@ struct SongListView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle(title)
+        .navigationTitle(artistName)
     }
 }
 
