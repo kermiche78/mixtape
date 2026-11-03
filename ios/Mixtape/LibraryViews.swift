@@ -133,67 +133,164 @@ struct AlbumsView: View {
 struct AlbumDetailView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
+    @ObservedObject private var stats = Stats.shared
+    @State private var tint: Color = .clear
     let albumID: String
 
     private var album: Album? { library.albums.first { $0.id == albumID } }
 
     var body: some View {
         if let album {
-            List {
-                VStack(spacing: 6) {
-                    ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 10, placeholderSeed: album.id)
-                        .frame(width: 250, height: 250)
-                        .shadow(color: .black.opacity(0.25), radius: 18, y: 10)
-                        .padding(.bottom, 12)
-                    Text(album.name).font(.title2.bold()).multilineTextAlignment(.center)
-                    NavigationLink(value: library.artist(named: album.artist) ?? Artist(name: album.artist, tracks: [], albums: [])) {
-                        Text(album.artist).font(.title3).foregroundStyle(Color.accentPink)
-                    }
-                    .buttonStyle(.plain)
-                    if album.isSingle {
-                        Text("Single").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-                    }
-                    PlayShuffleButtons(play: { player.play(album.tracks) },
-                                       shuffle: { player.play(album.tracks, shuffled: true) })
-                        .padding(.top, 14)
+            ScrollView {
+                VStack(spacing: 0) {
+                    header(album)
+                    tracks(album)
+                    footer(album)
                 }
-                .frame(maxWidth: .infinity)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 16, trailing: 20))
-
-                ForEach(Array(album.tracks.enumerated()), id: \.element.id) { i, track in
-                    TrackRow(track: track, number: track.trackNumber ?? i + 1)
-                        .onTapGesture { player.play(album.tracks, startAt: i) }
-                }
-
-                Text("\(album.tracks.count) morceau\(album.tracks.count > 1 ? "x" : ""), \(formatTotal(album.totalDuration))")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .listRowSeparator(.hidden)
-
-                let others = (library.artist(named: album.artist)?.albums ?? []).filter { $0.id != album.id }
-                if !others.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Plus de \(album.artist)").font(.title3.bold())
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(alignment: .top, spacing: 14) {
-                                ForEach(others) { other in
-                                    NavigationLink(value: other) { AlbumCell(album: other).frame(width: 150) }
-                                        .buttonStyle(.plain)
-                                }
-                            }
+                .padding(.bottom, 30)
+            }
+            .background(alignment: .top) {
+                // Léger halo aux couleurs de la pochette, qui se fond dans le fond.
+                LinearGradient(colors: [tint.opacity(0.55), tint.opacity(0)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 620)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    DownloadAllButton(tracks: album.tracks)
+                    Menu {
+                        Button { player.play(album.tracks) } label: { Label("Lire", systemImage: "play.fill") }
+                        Button { player.play(album.tracks, shuffled: true) } label: { Label("Lecture aléatoire", systemImage: "shuffle") }
+                        Button { album.tracks.reversed().forEach { player.playNext($0) } } label: {
+                            Label("Lire ensuite", systemImage: "text.line.first.and.arrowtriangle.forward")
                         }
-                    }
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 30, trailing: 0))
+                        Button { album.tracks.forEach { player.addToQueue($0) } } label: {
+                            Label("Lire en dernier", systemImage: "text.line.last.and.arrowtriangle.forward")
+                        }
+                        Divider()
+                        Button { album.tracks.forEach { if !stats.isFavorite($0) { stats.toggleFavorite($0) } } } label: {
+                            Label("Tout ajouter aux favoris", systemImage: "heart")
+                        }
+                    } label: { Image(systemName: "ellipsis") }
                 }
             }
-            .listStyle(.plain)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { DownloadAllButton(tracks: album.tracks) } }
+            .task(id: album.coverTrack?.id) {
+                guard let url = library.coverURL(album.coverTrack),
+                      let img = await ImageLoader.shared.image(for: url),
+                      let c = ArtworkColor.average(of: img) else { return }
+                withAnimation(.easeInOut(duration: 0.5)) { tint = c }
+            }
         } else {
             ContentUnavailableView("Album introuvable", systemImage: "square.stack")
         }
+    }
+
+    // Pochette, titre, artiste, infos, puis aléatoire · Lire · +
+    private func header(_ album: Album) -> some View {
+        VStack(spacing: 0) {
+            ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 10, placeholderSeed: album.id)
+                .frame(width: 270, height: 270)
+                .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+
+            Text(album.isSingle ? (album.tracks.first?.title ?? album.name) : album.name)
+                .font(.title2.bold())
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            NavigationLink(value: library.artist(named: album.artist) ?? Artist(name: album.artist, tracks: [], albums: [])) {
+                Text(album.artist).font(.title3).foregroundStyle(Color.primary.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+
+            Text([album.kindLabel, album.addedYear].filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 6)
+
+            HStack(spacing: 14) {
+                circleButton("shuffle") { player.play(album.tracks, shuffled: true) }
+                    .accessibilityLabel("Lecture aléatoire")
+                Button { player.play(album.tracks) } label: {
+                    Label("Lire", systemImage: "play.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(.white, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                circleButton("plus") { album.tracks.forEach { player.addToQueue($0) } }
+                    .accessibilityLabel("Ajouter à la file d'attente")
+            }
+            .padding(.horizontal, 44)
+            .padding(.top, 20)
+            .padding(.bottom, 22)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func circleButton(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 50, height: 50)
+                .liquidGlass(in: Circle(), interactive: true)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // Liste épurée : point (favori), numéro, titre, menu « … ».
+    private func tracks(_ album: Album) -> some View {
+        LazyVStack(spacing: 0) {
+            Divider().padding(.horizontal, 20)
+            ForEach(Array(album.tracks.enumerated()), id: \.element.id) { i, track in
+                HStack(spacing: 0) {
+                    Circle()
+                        .fill(stats.isFavorite(track) ? Color.secondary : .clear)
+                        .frame(width: 5, height: 5)
+                        .frame(width: 16)
+                    TrackRow(track: track, number: track.trackNumber ?? i + 1)
+                        .padding(.vertical, 12)
+                        .padding(.trailing, 16)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { player.play(album.tracks, startAt: i) }
+                Divider().padding(.leading, 54).padding(.trailing, 20)
+            }
+        }
+    }
+
+    private func footer(_ album: Album) -> some View {
+        VStack(alignment: .leading, spacing: 26) {
+            Text("\(album.tracks.count) titre\(album.tracks.count > 1 ? "s" : ""), \(formatTotal(album.totalDuration))")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+
+            let others = (library.artist(named: album.artist)?.albums ?? []).filter { $0.id != album.id }
+            if !others.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Plus de \(album.artist)").font(.title3.bold()).padding(.horizontal, 20)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: 14) {
+                            ForEach(others) { other in
+                                NavigationLink(value: other) { AlbumCell(album: other).frame(width: 150) }
+                                    .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
