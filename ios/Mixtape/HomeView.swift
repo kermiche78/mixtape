@@ -4,6 +4,7 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
+    @ObservedObject private var stats = Stats.shared
 
     var body: some View {
         ScrollView {
@@ -19,6 +20,48 @@ struct HomeView: View {
                                     .buttonStyle(.plain)
                             }
                         }
+                    }
+
+                    let favs = library.tracks.filter { Stats.shared.isFavorite($0) }
+                    let top = Stats.shared.top(library.tracks, limit: 8)
+                    if !top.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Les plus écoutés").font(.title2.bold()).padding(.horizontal, 20)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHGrid(rows: Array(repeating: GridItem(.fixed(58), spacing: 4), count: 4), spacing: 18) {
+                                    ForEach(Array(top.enumerated()), id: \.element.id) { i, track in
+                                        TrackRow(track: track)
+                                            .frame(width: 300)
+                                            .onTapGesture { player.play(top, startAt: i) }
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                            .scrollTargetBehavior(.viewAligned)
+                        }
+                    }
+
+                    if !favs.isEmpty {
+                        NavigationLink(value: LibrarySection.favorites) {
+                            HStack(spacing: 14) {
+                                Image(systemName: "heart.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 56, height: 56)
+                                    .background(LinearGradient(colors: [Color.accentPink, .purple], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Tes favoris").font(.headline)
+                                    Text("\(favs.count) son\(favs.count > 1 ? "s" : "")").font(.subheadline).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                            }
+                            .padding(12)
+                            .liquidGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous), interactive: true)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 20)
                     }
 
                     shelf("Nouveautés") {
