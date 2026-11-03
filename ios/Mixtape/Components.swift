@@ -130,6 +130,7 @@ struct TrackRow: View {
                 }
             }
             Spacer(minLength: 8)
+            DownloadBadge(track: track)
             TrackMenu(track: track)
         }
         .contentShape(Rectangle())
@@ -142,8 +143,19 @@ struct TrackMenu: View {
     let track: Track
     var playlistContext: Playlist? = nil
 
+    @ObservedObject private var downloads = DownloadManager.shared
+
     var body: some View {
         Menu {
+            if downloads.isDownloaded(track) {
+                Button(role: .destructive) { downloads.remove([track]) } label: {
+                    Label("Supprimer le téléchargement", systemImage: "trash")
+                }
+            } else {
+                Button { downloads.download([track], api: library.api) } label: {
+                    Label("Télécharger", systemImage: "arrow.down.circle")
+                }
+            }
             Button { player.playNext(track) } label: { Label("Lire ensuite", systemImage: "text.line.first.and.arrowtriangle.forward") }
             Button { player.addToQueue(track) } label: { Label("Lire en dernier", systemImage: "text.line.last.and.arrowtriangle.forward") }
             Menu {
