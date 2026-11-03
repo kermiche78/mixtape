@@ -7,6 +7,7 @@ extension View {
         self
             .navigationDestination(for: LibrarySection.self) { section in
                 switch section {
+                case .favorites: FavoritesView()
                 case .playlists: PlaylistsView()
                 case .artists: ArtistsView()
                 case .albums: AlbumsView()
@@ -169,6 +170,23 @@ struct AlbumDetailView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .listRowSeparator(.hidden)
+
+                let others = (library.artist(named: album.artist)?.albums ?? []).filter { $0.id != album.id }
+                if !others.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Plus de \(album.artist)").font(.title3.bold())
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(alignment: .top, spacing: 14) {
+                                ForEach(others) { other in
+                                    NavigationLink(value: other) { AlbumCell(album: other).frame(width: 150) }
+                                        .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 30, trailing: 0))
+                }
             }
             .listStyle(.plain)
             .navigationBarTitleDisplayMode(.inline)
@@ -212,8 +230,31 @@ struct ArtistDetailView: View {
         if let artist {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    VStack(spacing: 10) {
+                        ArtworkView(url: library.coverURL(artist.coverTrack), cornerRadius: 90, placeholderSeed: artist.id)
+                            .frame(width: 180, height: 180)
+                            .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
+                        Text(artist.name).font(.largeTitle.bold()).multilineTextAlignment(.center)
+                        Text("\(artist.albums.count) album\(artist.albums.count > 1 ? "s" : "") · \(artist.tracks.count) morceau\(artist.tracks.count > 1 ? "x" : "")")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+
                     PlayShuffleButtons(play: { player.play(artist.tracks) },
                                        shuffle: { player.play(artist.tracks, shuffled: true) })
+
+                    let top = Stats.shared.top(artist.tracks, limit: 5)
+                    if !top.isEmpty {
+                        Text("Les plus écoutés").font(.title2.bold())
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(top.enumerated()), id: \.element.id) { i, track in
+                                TrackRow(track: track)
+                                    .padding(.vertical, 6)
+                                    .onTapGesture { player.play(top, startAt: i) }
+                                Divider().padding(.leading, 60)
+                            }
+                        }
+                    }
 
                     if !artist.albums.isEmpty {
                         Text("Albums").font(.title2.bold())
@@ -239,7 +280,7 @@ struct ArtistDetailView: View {
                 }
                 .padding(20)
             }
-            .navigationTitle(artist.name)
+            .navigationBarTitleDisplayMode(.inline)
         } else {
             ContentUnavailableView("Artiste introuvable", systemImage: "music.mic")
         }
