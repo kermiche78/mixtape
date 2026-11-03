@@ -29,6 +29,8 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var shuffle = false
     @Published var repeatMode: RepeatMode = .off
     @Published var showNowPlaying = false
+    /// Demande d'ouvrir une page depuis le lecteur (artiste ou album du son en cours).
+    @Published var navRequest: NavRequest?
     /// Derniers sons écoutés (du plus récent au plus ancien), gardés entre les lancements.
     /// Minuterie de mise en veille.
     @Published private(set) var sleepTimerEnd: Date?
@@ -362,4 +364,10 @@ final class PlayerModel: ObservableObject {
             }
         }
     }
+}
+
+/// Page à ouvrir depuis le lecteur plein écran.
+enum NavRequest: Equatable {
+    case artist(String)
+    case album(String)
 }
