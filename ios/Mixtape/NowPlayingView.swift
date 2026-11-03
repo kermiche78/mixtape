@@ -49,6 +49,8 @@ struct NowPlayingView: View {
                     if let track {
                         TrackMenu(track: track)
                             .tint(.white)
+                            .frame(width: 36, height: 36)
+                            .liquidGlass(in: Circle(), interactive: true)
                     }
                 }
                 .padding(.top, 28)
@@ -77,17 +79,19 @@ struct NowPlayingView: View {
                     .frame(height: 34)
 
                 // Rangée du bas : aléatoire, file d'attente, répétition
-                HStack {
+                GlassGroup(spacing: 20) { HStack {
                     toggleButton("shuffle", on: player.shuffle) { player.toggleShuffle() }
                     Spacer()
-                    AirPlayButton().frame(width: 44, height: 44)
+                    AirPlayButton().frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
+                        .liquidGlass(in: Circle())
                     Spacer()
                     toggleButton("list.bullet", on: showQueue) {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { showQueue.toggle() }
                     }
                     Spacer()
                     toggleButton(player.repeatMode.icon, on: player.repeatMode != .off) { player.cycleRepeat() }
-                }
+                } }
                 .padding(.top, 14)
                 .padding(.bottom, 8)
             }
@@ -112,12 +116,13 @@ struct NowPlayingView: View {
     private func toggleButton(_ icon: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(on ? Color.black.opacity(0.75) : .white.opacity(0.7))
-                .frame(width: 36, height: 36)
-                .background(on ? Color.white.opacity(0.85) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(on ? Color.accentPink : .white.opacity(0.75))
+                .frame(width: 44, height: 44)
+                .liquidGlass(in: Circle(), interactive: true, tint: on ? .white.opacity(0.35) : nil)
         }
-        .frame(width: 44, height: 44)
+        .buttonStyle(.plain)
+        .frame(width: 48, height: 48)
     }
 }
 
