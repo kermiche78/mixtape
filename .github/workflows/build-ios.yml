@@ -1,0 +1,53 @@
+name: Compiler l'app iPhone
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/build-ios.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer XcodeGen
+        run: brew install xcodegen
+
+      - name: Generer le projet Xcode
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Compiler (sans signature, SideStore signera)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Mixtape.xcodeproj -target Mixtape -configuration Release -sdk iphoneos \
+            SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | xcbeautify || exit 1
+
+      - name: Creer Mixtape.ipa
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Release-iphoneos/Mixtape.app Payload/
+          zip -qry Mixtape.ipa Payload
+          ls -lh Mixtape.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mixtape-ipa
+          path: ios/Mixtape.ipa
+
+      - name: Publier la version
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Mixtape (build ${{ github.run_number }})
+          body: Fichier a installer avec SideStore.
+          files: ios/Mixtape.ipa
+          make_latest: true
