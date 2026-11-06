@@ -26,6 +26,7 @@ struct MainTabs: View {
     var body: some View {
         tabs
             .environment(\.zoomNamespace, zoomNamespace)
+            .overlay(alignment: .top) { SharePreparingBanner() }
             .sheet(isPresented: $player.showNowPlaying) {
                 NowPlayingView()
             }

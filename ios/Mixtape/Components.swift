@@ -222,6 +222,9 @@ struct TrackMenu: View {
             }
             Button { player.playNext(track) } label: { Label("Lire ensuite", systemImage: "text.line.first.and.arrowtriangle.forward") }
             Button { player.addToQueue(track) } label: { Label("Lire en dernier", systemImage: "text.line.last.and.arrowtriangle.forward") }
+            Button { ShareManager.shared.share(track, api: library.api) } label: {
+                Label("Partager le son", systemImage: "square.and.arrow.up")
+            }
             Menu {
                 Button {
                     Task { await library.createPlaylist(name: track.title, trackIds: [track.id]) }

@@ -27,7 +27,13 @@ struct NowPlayingView: View {
                     Spacer(minLength: 0)
                     ArtworkView(url: library.coverURL(track), cornerRadius: 14, placeholderSeed: track?.albumKey ?? "")
                         .frame(width: side, height: side)
-                        .shadow(color: .black.opacity(0.45), radius: 30, y: 16)
+                        // La pochette « respire » doucement pendant la lecture.
+                        .phaseAnimator([1.0, 1.035]) { content, scale in
+                            content.scaleEffect(player.isPlaying ? scale : 1)
+                        } animation: { _ in
+                            .easeInOut(duration: 2.6)
+                        }
+                        .shadow(color: .black.opacity(player.isPlaying ? 0.55 : 0.35), radius: player.isPlaying ? 34 : 22, y: 16)
                         .scaleEffect(player.isPlaying ? 1 : 0.84)
                         .animation(.spring(response: 0.45, dampingFraction: 0.72), value: player.isPlaying)
                         .frame(maxWidth: .infinity)
@@ -133,6 +139,7 @@ struct NowPlayingView: View {
         }
         .foregroundStyle(.white)
         .background { BlurredBackdrop(url: library.coverURL(track)) }
+        .overlay(alignment: .top) { SharePreparingBanner().padding(.top, 20) }
         .preferredColorScheme(.dark)
         .presentationDragIndicator(.hidden)
         .onChange(of: player.current == nil) { _, isEmpty in if isEmpty { dismiss() } }
