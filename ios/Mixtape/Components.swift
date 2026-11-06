@@ -76,6 +76,18 @@ enum ArtworkColor {
     private static let context = CIContext(options: [.workingColorSpace: NSNull()])
 
     static func average(of image: UIImage) -> Color? {
+        guard let c = hsb(of: image) else { return nil }
+        // Couleur vive mais assez sombre pour que le texte blanc reste lisible.
+        return Color(hue: c.h, saturation: min(max(c.s * 1.3, 0.25), 0.85), brightness: min(max(c.b, 0.35), 0.6))
+    }
+
+    /// Fond de page d'album : la couleur de la pochette, en plus sombre (comme Apple Music).
+    static func background(of image: UIImage) -> Color? {
+        guard let c = hsb(of: image) else { return nil }
+        return Color(hue: c.h, saturation: min(c.s * 1.15, 0.7), brightness: min(max(c.b * 0.6, 0.1), 0.3))
+    }
+
+    private static func hsb(of image: UIImage) -> (h: Double, s: Double, b: Double)? {
         guard let input = CIImage(image: image),
               let filter = CIFilter(name: "CIAreaAverage",
                                     parameters: [kCIInputImageKey: input, kCIInputExtentKey: CIVector(cgRect: input.extent)]),
@@ -85,8 +97,7 @@ enum ArtworkColor {
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         UIColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1)
             .getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-        // Couleur vive mais assez sombre pour que le texte blanc reste lisible.
-        return Color(hue: h, saturation: min(max(s * 1.3, 0.25), 0.85), brightness: min(max(b, 0.35), 0.6))
+        return (h: Double(h), s: Double(s), b: Double(b))
     }
 }
 
@@ -299,6 +310,7 @@ struct AlbumCell: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 8, placeholderSeed: album.id)
+                .zoomSource(id: album.id)
                 .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
                 .overlay(alignment: .topLeading) {
                     if stats.isNew(album) { NewBadge().padding(6) }

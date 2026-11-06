@@ -17,7 +17,7 @@ extension View {
                 case .replay: ReplayView()
                 }
             }
-            .navigationDestination(for: Album.self) { AlbumDetailView(albumID: $0.id) }
+            .navigationDestination(for: Album.self) { AlbumDetailView(albumID: $0.id).zoomDestination(id: $0.id) }
             .navigationDestination(for: Artist.self) { ArtistDetailView(name: $0.name) }
             .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlistID: $0.id) }
             .navigationDestination(for: DiscographyRoute.self) { DiscographyView(route: $0) }
@@ -139,6 +139,7 @@ struct AlbumDetailView: View {
     @EnvironmentObject private var player: PlayerModel
     @ObservedObject private var stats = Stats.shared
     @State private var tint: Color = .clear
+    @State private var pageColor: Color = Color(white: 0.09)
     let albumID: String
 
     private var album: Album? { library.albums.first { $0.id == albumID } }
@@ -154,13 +155,18 @@ struct AlbumDetailView: View {
                 }
                 .padding(.bottom, 30)
             }
-            .background(alignment: .top) {
-                // Léger halo aux couleurs de la pochette, qui se fond dans le fond.
-                LinearGradient(colors: [tint.opacity(0.55), tint.opacity(0)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 620)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
+            .background {
+                // Toute la page prend la couleur de la pochette, un peu plus claire en haut.
+                ZStack(alignment: .top) {
+                    pageColor
+                    LinearGradient(colors: [tint.opacity(0.45), tint.opacity(0)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 620)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             }
+            // Texte blanc sur le fond coloré, même si l'iPhone est en mode clair.
+            .environment(\.colorScheme, .dark)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -185,7 +191,11 @@ struct AlbumDetailView: View {
                 guard let url = library.coverURL(album.coverTrack),
                       let img = await ImageLoader.shared.image(for: url),
                       let c = ArtworkColor.average(of: img) else { return }
-                withAnimation(.easeInOut(duration: 0.5)) { tint = c }
+                let page = ArtworkColor.background(of: img) ?? pageColor
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    tint = c
+                    pageColor = page
+                }
             }
         } else {
             ContentUnavailableView("Album introuvable", systemImage: "square.stack")
@@ -586,6 +596,7 @@ struct ReleaseGrid: View {
                     VStack(alignment: .leading, spacing: 6) {
                         ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 6, placeholderSeed: album.id)
                             .aspectRatio(1, contentMode: .fit)
+                            .zoomSource(id: album.id)
                             .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
                         Text(album.isSingle ? (album.tracks.first?.title ?? album.name) : album.name)
                             .font(.subheadline.weight(.semibold)).lineLimit(1)

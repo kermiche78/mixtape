@@ -19,6 +19,7 @@ struct SearchView: View {
                             HStack(spacing: 12) {
                                 ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 5, placeholderSeed: album.id)
                                     .frame(width: 52, height: 52)
+                                    .zoomSource(id: album.id)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(album.name).lineLimit(1)
                                     Text(album.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
@@ -50,6 +51,7 @@ struct SearchView: View {
                             HStack(spacing: 12) {
                                 ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 5, placeholderSeed: album.id)
                                     .frame(width: 52, height: 52)
+                                    .zoomSource(id: album.id)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(album.name).lineLimit(1)
                                     Text("Album · \(album.artist)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)

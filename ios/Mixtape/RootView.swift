@@ -21,9 +21,11 @@ struct MainTabs: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
     @State private var paths: [NavigationPath] = Array(repeating: NavigationPath(), count: 4)
+    @Namespace private var zoomNamespace
 
     var body: some View {
         tabs
+            .environment(\.zoomNamespace, zoomNamespace)
             .sheet(isPresented: $player.showNowPlaying) {
                 NowPlayingView()
             }
