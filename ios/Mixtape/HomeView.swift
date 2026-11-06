@@ -64,6 +64,10 @@ struct HomeView: View {
                         .padding(.horizontal, 20)
                     }
 
+                    if !stats.playCounts.isEmpty {
+                        ReplayCard()
+                    }
+
                     shelf("Nouveautés") {
                         ForEach(library.recentlyAdded) { album in
                             NavigationLink(value: album) { AlbumCell(album: album).frame(width: 180) }

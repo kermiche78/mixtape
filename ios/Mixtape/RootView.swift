@@ -321,6 +321,7 @@ struct SettingsView: View {
     @EnvironmentObject private var player: PlayerModel
     @State private var confirmLogout = false
     @ObservedObject private var downloads = DownloadManager.shared
+    @AppStorage("autoplay") private var autoplay = true
 
     var body: some View {
         List {
@@ -343,6 +344,14 @@ struct SettingsView: View {
                       systemImage: "info.circle")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Lecture continue", isOn: $autoplay)
+                    .tint(Color.accentPink)
+            } header: {
+                Text("Lecture")
+            } footer: {
+                Text("Quand ta file d'attente est finie, Mixtape enchaîne sur des sons du même artiste et sur tes favoris.")
             }
             Section("Téléchargements") {
                 LabeledContent("Sons téléchargés", value: "\(downloads.downloaded.count)")

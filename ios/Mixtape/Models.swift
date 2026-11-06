@@ -57,6 +57,8 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
     case albums = "Albums"
     case songs = "Morceaux"
     case downloads = "Téléchargements"
+    case history = "Historique"
+    case replay = "Mixtape Replay"
 
     var id: String { rawValue }
 
@@ -68,6 +70,8 @@ enum LibrarySection: String, Hashable, CaseIterable, Identifiable {
         case .albums: return "square.stack"
         case .songs: return "music.note"
         case .downloads: return "arrow.down.circle"
+        case .history: return "clock.arrow.circlepath"
+        case .replay: return "chart.bar.fill"
         }
     }
 }

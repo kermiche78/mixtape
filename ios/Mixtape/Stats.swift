@@ -8,10 +8,20 @@ final class Stats: ObservableObject {
 
     @Published private(set) var favorites: Set<String>
     @Published private(set) var playCounts: [String: Int]
+    /// Historique des écoutes, du plus récent au plus ancien.
+    @Published private(set) var history: [PlayEvent]
+
+    private static let historyLimit = 3000
 
     private init() {
         favorites = Set(UserDefaults.standard.stringArray(forKey: "favorites") ?? [])
         playCounts = UserDefaults.standard.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
+        if let data = UserDefaults.standard.data(forKey: "playHistory"),
+           let saved = try? JSONDecoder().decode([PlayEvent].self, from: data) {
+            history = saved
+        } else {
+            history = []
+        }
     }
 
     func isFavorite(_ track: Track) -> Bool { favorites.contains(track.id) }
@@ -24,6 +34,18 @@ final class Stats: ObservableObject {
     func countPlay(_ track: Track) {
         playCounts[track.id, default: 0] += 1
         UserDefaults.standard.set(playCounts, forKey: "playCounts")
+        history.insert(PlayEvent(trackId: track.id, date: Date().timeIntervalSince1970), at: 0)
+        if history.count > Self.historyLimit { history.removeLast(history.count - Self.historyLimit) }
+        saveHistory()
+    }
+
+    func clearHistory() {
+        history = []
+        saveHistory()
+    }
+
+    private func saveHistory() {
+        if let data = try? JSONEncoder().encode(history) { UserDefaults.standard.set(data, forKey: "playHistory") }
     }
 
     func plays(_ track: Track) -> Int { playCounts[track.id] ?? 0 }
@@ -32,6 +54,12 @@ final class Stats: ObservableObject {
     func top(_ tracks: [Track], limit: Int) -> [Track] {
         Array(tracks.filter { plays($0) > 0 }.sorted { plays($0) > plays($1) }.prefix(limit))
     }
+}
+
+/// Une écoute : quel son, et quand.
+struct PlayEvent: Codable, Hashable {
+    let trackId: String
+    let date: Double
 }
 
 /// Cœur pour ajouter ou retirer un son des favoris.

@@ -180,6 +180,8 @@ final class PlayerModel: ObservableObject {
             index += 1
         } else if repeatMode == .all {
             index = 0
+        } else if autoplayEnabled, appendAutoplay() {
+            index += 1
         } else {
             player.pause()
             seek(to: 0)
@@ -225,6 +227,47 @@ final class PlayerModel: ObservableObject {
     }
 
     func cycleRepeat() { repeatMode = repeatMode.next }
+
+    // MARK: Lecture continue
+
+    /// Réglable dans Réglages, activée par défaut.
+    var autoplayEnabled: Bool { UserDefaults.standard.object(forKey: "autoplay") as? Bool ?? true }
+
+    /// Quand la file est finie, ajoute des sons proches (même artiste, favoris, les plus écoutés).
+    private func appendAutoplay() -> Bool {
+        guard let library, let last = current else { return false }
+        let suggestions = autoplaySuggestions(after: last, from: library.tracks)
+        guard !suggestions.isEmpty else { return false }
+        queue.append(contentsOf: suggestions)
+        originalQueue.append(contentsOf: suggestions)
+        return true
+    }
+
+    private func autoplaySuggestions(after track: Track, from all: [Track]) -> [Track] {
+        var avoid = Set(queue.suffix(40).map { $0.id })
+        for id in recentlyPlayed.prefix(30) { avoid.insert(id) }
+        var source = all.filter { !avoid.contains($0.id) }
+        if source.isEmpty { source = all.filter { $0.id != track.id } }
+        guard !source.isEmpty else { return [] }
+
+        let stats = Stats.shared
+        let artist = track.displayArtist.lowercased()
+        let sameArtist = source.filter { $0.displayArtist.lowercased() == artist }.shuffled()
+        let liked = source.filter { stats.isFavorite($0) || stats.plays($0) > 1 }.shuffled()
+        let others = source.shuffled()
+
+        var picked: [Track] = []
+        var seen = Set<String>()
+        for (list, limit) in [(sameArtist, 4), (liked, 12), (others, 20)] {
+            for t in list where picked.count < limit && !seen.contains(t.id) {
+                seen.insert(t.id)
+                picked.append(t)
+            }
+        }
+        guard let first = picked.first else { return [] }
+        // Un son du même artiste d'abord, puis le reste mélangé.
+        return [first] + picked.dropFirst().shuffled()
+    }
 
     // MARK: File d'attente modifiable
 

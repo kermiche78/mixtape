@@ -13,6 +13,8 @@ extension View {
                 case .albums: AlbumsView()
                 case .songs: SongsView()
                 case .downloads: DownloadsView()
+                case .history: HistoryView()
+                case .replay: ReplayView()
                 }
             }
             .navigationDestination(for: Album.self) { AlbumDetailView(albumID: $0.id) }
