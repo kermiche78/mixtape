@@ -15,7 +15,10 @@ struct MixtapeApp: App {
             RootView()
                 .environmentObject(library)
                 .environmentObject(player)
-                .onAppear { player.library = library }
+                .onAppear {
+                    player.library = library
+                    SmartPlaylistStore.shared.attach(library)
+                }
         }
     }
 }

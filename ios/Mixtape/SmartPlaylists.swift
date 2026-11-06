@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 // MARK: - Playlists automatiques (« Faites pour toi »)
@@ -83,10 +84,63 @@ struct SmartPlaylist: Identifiable, Hashable {
     }
 }
 
+/// Garde les playlists automatiques déjà calculées : on ne refait le calcul que quand
+/// la bibliothèque, tes écoutes ou tes téléchargements changent (pas à chaque affichage).
+@MainActor
+final class SmartPlaylistStore: ObservableObject {
+    static let shared = SmartPlaylistStore()
+
+    @Published private(set) var playlists: [SmartPlaylist] = []
+    private var cache: [String: [Track]] = [:]
+    private weak var library: LibraryStore?
+    private var cancellables = Set<AnyCancellable>()
+
+    private init() {}
+
+    func attach(_ library: LibraryStore) {
+        guard self.library !== library else { return }
+        self.library = library
+        cancellables = []
+        Publishers.Merge3(
+            library.$tracks.map { _ in () },
+            Stats.shared.objectWillChange.map { _ in () },
+            DownloadManager.shared.objectWillChange.map { _ in () }
+        )
+        .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+        .sink { [weak self] in self?.rebuild() }
+        .store(in: &cancellables)
+        rebuild()
+    }
+
+    func tracks(for playlist: SmartPlaylist) -> [Track] {
+        if let cached = cache[playlist.id] { return cached }
+        guard let library else { return [] }
+        let computed = SmartPlaylists.tracks(for: playlist, library: library)
+        cache[playlist.id] = computed
+        return computed
+    }
+
+    func coverTrack(for playlist: SmartPlaylist) -> Track? {
+        tracks(for: playlist).first { $0.hasCover }
+    }
+
+    private func rebuild() {
+        guard let library else { return }
+        var fresh: [String: [Track]] = [:]
+        let candidates = SmartPlaylists.candidates(library: library)
+        for playlist in candidates {
+            fresh[playlist.id] = SmartPlaylists.tracks(for: playlist, library: library)
+        }
+        cache = fresh
+        let visible = candidates.filter { !(fresh[$0.id] ?? []).isEmpty }
+        playlists = visible
+    }
+}
+
 @MainActor
 enum SmartPlaylists {
-    /// Les playlists à afficher (seulement celles qui ont des sons).
-    static func all(library: LibraryStore) -> [SmartPlaylist] {
+    /// Toutes les playlists possibles (même vides).
+    static func candidates(library: LibraryStore) -> [SmartPlaylist] {
         var list: [SmartPlaylist] = [
             SmartPlaylist(kind: .recent),
             SmartPlaylist(kind: .weekly),
@@ -99,7 +153,7 @@ enum SmartPlaylists {
             SmartPlaylist(kind: .neverPlayed),
             SmartPlaylist(kind: .offline),
         ]
-        return list.filter { !tracks(for: $0, library: library).isEmpty }
+        return list
     }
 
     static func tracks(for playlist: SmartPlaylist, library: LibraryStore) -> [Track] {
@@ -157,11 +211,6 @@ enum SmartPlaylists {
         }
     }
 
-    /// Le son dont la pochette illustre la playlist.
-    static func coverTrack(for playlist: SmartPlaylist, library: LibraryStore) -> Track? {
-        tracks(for: playlist, library: library).first { $0.hasCover }
-    }
-
     private static func topArtists(library: LibraryStore, limit: Int) -> [String] {
         var byArtist: [String: Int] = [:]
         for track in library.tracks {
@@ -196,11 +245,12 @@ private struct DailyGenerator: RandomNumberGenerator {
 /// Photo de pochette en noir et blanc teintée, gros titre et logo Mixtape.
 struct SmartPlaylistCover: View {
     @EnvironmentObject private var library: LibraryStore
+    @ObservedObject private var store = SmartPlaylistStore.shared
     let playlist: SmartPlaylist
     var cornerRadius: CGFloat = 12
 
     var body: some View {
-        let cover = SmartPlaylists.coverTrack(for: playlist, library: library)
+        let cover = store.coverTrack(for: playlist)
         Color.clear
             .aspectRatio(1, contentMode: .fit)
             .overlay {
@@ -253,11 +303,11 @@ struct SmartPlaylistCover: View {
 /// « Faites pour toi » : grandes pochettes qui défilent, comme Apple Music.
 struct SmartPlaylistsShelf: View {
     @EnvironmentObject private var library: LibraryStore
-    @ObservedObject private var stats = Stats.shared
-    @ObservedObject private var downloads = DownloadManager.shared
+    @ObservedObject private var store = SmartPlaylistStore.shared
 
     var body: some View {
-        let playlists = SmartPlaylists.all(library: library)
+        let playlists = store.playlists
+        Group {
         if !playlists.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Faites pour toi").font(.title2.bold()).padding(.horizontal, 20)
@@ -274,7 +324,7 @@ struct SmartPlaylistsShelf: View {
                                         Text("Mixtape : \(playlist.subtitle)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                 }
-                                .frame(width: 250)
+                                .frame(width: 180)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -286,6 +336,8 @@ struct SmartPlaylistsShelf: View {
                 .scrollTargetBehavior(.viewAligned)
             }
         }
+        }
+        .onAppear { store.attach(library) }
     }
 }
 
@@ -294,16 +346,15 @@ struct SmartPlaylistsShelf: View {
 struct SmartPlaylistView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
-    @ObservedObject private var stats = Stats.shared
-    @ObservedObject private var downloads = DownloadManager.shared
+    @ObservedObject private var store = SmartPlaylistStore.shared
     let playlist: SmartPlaylist
 
     var body: some View {
-        let list = SmartPlaylists.tracks(for: playlist, library: library)
+        let list = store.tracks(for: playlist)
         List {
             VStack(spacing: 14) {
                 SmartPlaylistCover(playlist: playlist, cornerRadius: 14)
-                    .frame(width: 260, height: 260)
+                    .frame(width: 220, height: 220)
                     .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
                 VStack(spacing: 4) {
                     Text(playlist.title).font(.title2.bold()).multilineTextAlignment(.center)
@@ -345,10 +396,10 @@ struct SmartPlaylistView: View {
 /// Section « Faites pour toi » en haut de la liste des playlists.
 struct SmartPlaylistRows: View {
     @EnvironmentObject private var library: LibraryStore
-    @ObservedObject private var stats = Stats.shared
+    @ObservedObject private var store = SmartPlaylistStore.shared
 
     var body: some View {
-        ForEach(SmartPlaylists.all(library: library)) { playlist in
+        ForEach(store.playlists) { playlist in
             NavigationLink(value: playlist) {
                 HStack(spacing: 14) {
                     SmartPlaylistCover(playlist: playlist, cornerRadius: 6)
@@ -360,5 +411,6 @@ struct SmartPlaylistRows: View {
                 }
             }
         }
+        .onAppear { store.attach(library) }
     }
 }
