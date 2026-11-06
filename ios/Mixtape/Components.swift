@@ -135,6 +135,7 @@ struct BlurredBackdrop: View {
 struct TrackRow: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
+    @ObservedObject private var stats = Stats.shared
     let track: Track
     var number: Int? = nil
     var showArtwork = true
@@ -155,9 +156,15 @@ struct TrackRow: View {
                     .frame(width: 48, height: 48)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.title)
-                    .lineLimit(1)
-                    .foregroundStyle(player.current?.id == track.id && number == nil ? Color.accentPink : .primary)
+                HStack(spacing: 6) {
+                    if stats.isNew(track) {
+                        Circle().fill(Color.accentPink).frame(width: 7, height: 7)
+                            .accessibilityLabel("Nouveau")
+                    }
+                    Text(track.title)
+                        .lineLimit(1)
+                        .foregroundStyle(player.current?.id == track.id && number == nil ? Color.accentPink : .primary)
+                }
                 if number == nil || track.artist != (library.album(for: track)?.artist ?? "") {
                     Text(track.displayArtist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -286,12 +293,16 @@ struct AlbumCell: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
     @ObservedObject private var downloads = DownloadManager.shared
+    @ObservedObject private var stats = Stats.shared
     let album: Album
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 8, placeholderSeed: album.id)
                 .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+                .overlay(alignment: .topLeading) {
+                    if stats.isNew(album) { NewBadge().padding(6) }
+                }
             VStack(alignment: .leading, spacing: 1) {
                 Text(album.name).font(.subheadline).lineLimit(1).foregroundStyle(.primary)
                 Text(album.artist).font(.subheadline).lineLimit(1).foregroundStyle(.secondary)
@@ -324,6 +335,20 @@ struct AlbumCell: View {
             }
             .padding(16)
         }
+    }
+}
+
+/// Pastille « NOUVEAU » sur les pochettes.
+struct NewBadge: View {
+    var body: some View {
+        Text("NOUVEAU")
+            .font(.system(size: 10, weight: .heavy))
+            .tracking(0.5)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Color.accentPink, in: Capsule())
+            .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
     }
 }
 

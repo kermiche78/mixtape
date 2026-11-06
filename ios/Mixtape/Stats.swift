@@ -50,6 +50,16 @@ final class Stats: ObservableObject {
 
     func plays(_ track: Track) -> Int { playCounts[track.id] ?? 0 }
 
+    /// « Nouveau » : ajouté sur le serveur il y a moins de 7 jours et pas encore écouté.
+    func isNew(_ track: Track) -> Bool {
+        guard plays(track) == 0, track.createdAt > 0 else { return false }
+        // Le serveur peut donner la date en secondes ou en millisecondes.
+        let added = track.createdAt > 100_000_000_000 ? track.createdAt / 1000 : track.createdAt
+        return Date().timeIntervalSince1970 - added < 7 * 24 * 3600
+    }
+
+    func isNew(_ album: Album) -> Bool { album.tracks.contains { isNew($0) } }
+
     /// Les sons les plus écoutés parmi une liste.
     func top(_ tracks: [Track], limit: Int) -> [Track] {
         Array(tracks.filter { plays($0) > 0 }.sorted { plays($0) > plays($1) }.prefix(limit))
