@@ -52,7 +52,11 @@ final class PlayerModel: ObservableObject {
 
     weak var library: LibraryStore?
 
-    private let player = AVPlayer()
+    /// File de lecture d'iOS : le son suivant y est préparé à l'avance pour enchaîner sans blanc.
+    private let player = AVQueuePlayer()
+    /// Son suivant déjà chargé (lecture sans coupure).
+    private var preloadedItem: AVPlayerItem?
+    private var preloadedIndex: Int?
     private var originalQueue: [Track] = []
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
@@ -84,6 +88,15 @@ final class PlayerModel: ObservableObject {
                 self.isBuffering = status == .waitingToPlayAtSpecifiedRate
                 if status == .paused { self.saveAlbumProgress() }
                 self.updateNowPlayingInfo()
+            }
+            .store(in: &cancellables)
+
+        // iOS est passé tout seul au son préparé : on met l'app à jour sans recharger.
+        player.publisher(for: \.currentItem)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] item in
+                guard let self, let item, item === self.preloadedItem else { return }
+                self.didAdvanceToPreloaded()
             }
             .store(in: &cancellables)
 
@@ -139,6 +152,7 @@ final class PlayerModel: ObservableObject {
         if queue.isEmpty { play([track]); return }
         queue.insert(track, at: index + 1)
         originalQueue.append(track)
+        refreshPreload()
     }
 
     /// Fin de la plage déjà téléchargée qui contient la position actuelle.
@@ -159,6 +173,7 @@ final class PlayerModel: ObservableObject {
         if queue.isEmpty { play([track]); return }
         queue.append(track)
         originalQueue.append(track)
+        refreshPreload()
     }
 
     func jump(to track: Track) {
@@ -224,9 +239,13 @@ final class PlayerModel: ObservableObject {
             index = 0
             shuffle = true
         }
+        refreshPreload()
     }
 
-    func cycleRepeat() { repeatMode = repeatMode.next }
+    func cycleRepeat() {
+        repeatMode = repeatMode.next
+        refreshPreload()
+    }
 
     // MARK: Lecture continue
 
@@ -276,6 +295,7 @@ final class PlayerModel: ObservableObject {
             let t = queue.remove(at: i)
             if let j = originalQueue.firstIndex(of: t) { originalQueue.remove(at: j) }
         }
+        refreshPreload()
     }
 
     func moveUpNext(from source: IndexSet, to destination: Int) {
@@ -283,12 +303,14 @@ final class PlayerModel: ObservableObject {
         var up = upNext
         up.move(fromOffsets: source, toOffset: destination)
         queue = Array(queue[...index]) + up
+        refreshPreload()
     }
 
     func clearUpNext() {
         guard queue.indices.contains(index) else { return }
         queue = Array(queue[...index])
         originalQueue = queue
+        refreshPreload()
     }
 
     // MARK: Minuterie
@@ -310,14 +332,13 @@ final class PlayerModel: ObservableObject {
         sleepTask?.cancel()
         sleepTimerEnd = nil
         stopAtEndOfTrack = true
+        refreshPreload()
     }
 
     private func trackDidEnd() {
-        // Dernier son de l'album terminé : plus rien à reprendre.
-        if let track = current, let album = library?.album(for: track), album.tracks.last?.id == track.id {
-            albumProgress[album.id] = nil
-            persistAlbumProgress()
-        }
+        // Un son suivant est déjà prêt : iOS enchaîne tout seul (voir didAdvanceToPreloaded).
+        if preloadedItem != nil, player.actionAtItemEnd == .advance { return }
+        clearAlbumProgressIfFinished(current)
         if stopAtEndOfTrack {
             stopAtEndOfTrack = false
             player.pause()
@@ -332,20 +353,84 @@ final class PlayerModel: ObservableObject {
         }
     }
 
-    private func loadCurrent(autoplay: Bool) {
-        guard let track = current else { return }
-        // Son téléchargé : lu depuis l'iPhone, sans réseau. Sinon : depuis le PC.
-        let url: URL
-        if let local = DownloadManager.shared.localURL(for: track) {
-            url = local
-        } else if let api = library?.api {
-            url = api.streamURL(for: track)
-        } else {
+    /// Son téléchargé : lu depuis l'iPhone, sans réseau. Sinon : depuis le PC.
+    private func sourceURL(for track: Track) -> URL? {
+        if let local = DownloadManager.shared.localURL(for: track) { return local }
+        return library?.api?.streamURL(for: track)
+    }
+
+    private func clearAlbumProgressIfFinished(_ track: Track?) {
+        // Dernier son de l'album terminé : plus rien à reprendre.
+        if let track, let album = library?.album(for: track), album.tracks.last?.id == track.id {
+            albumProgress[album.id] = nil
+            persistAlbumProgress()
+        }
+    }
+
+    // MARK: Lecture sans coupure
+
+    /// Index du son qui doit suivre naturellement (nil = on s'arrête après celui-ci).
+    private func naturalNextIndex() -> Int? {
+        guard !queue.isEmpty, repeatMode != .one, !stopAtEndOfTrack else { return nil }
+        if index + 1 < queue.count { return index + 1 }
+        if repeatMode == .all { return 0 }
+        if autoplayEnabled, appendAutoplay() { return index + 1 }
+        return nil
+    }
+
+    /// Prépare le son suivant dans la file d'iOS pendant que le son actuel joue.
+    private func prepareNext() {
+        guard player.currentItem != nil,
+              let next = naturalNextIndex(),
+              queue.indices.contains(next),
+              let url = sourceURL(for: queue[next]) else {
+            player.actionAtItemEnd = .pause
             return
         }
         let item = AVPlayerItem(url: url)
+        item.preferredForwardBufferDuration = 30
+        player.insert(item, after: player.currentItem)
+        preloadedItem = item
+        preloadedIndex = next
+        player.actionAtItemEnd = .advance
+    }
+
+    /// La file a changé : on remplace le son préparé.
+    private func refreshPreload() {
+        if let item = preloadedItem, item !== player.currentItem { player.remove(item) }
+        preloadedItem = nil
+        preloadedIndex = nil
+        prepareNext()
+    }
+
+    /// iOS a enchaîné sur le son préparé, sans blanc.
+    private func didAdvanceToPreloaded() {
+        guard let next = preloadedIndex, queue.indices.contains(next) else { return }
+        clearAlbumProgressIfFinished(current)
+        preloadedItem = nil
+        preloadedIndex = nil
+        index = next
+        let track = queue[next]
         rememberPlayed(track)
-        player.replaceCurrentItem(with: item)
+        resumeObserver = nil
+        bufferedTime = 0
+        currentTime = 0
+        duration = track.duration
+        lastSavedSecond = -1
+        updateNowPlayingInfo()
+        loadArtwork(for: track)
+        prepareNext()
+    }
+
+    private func loadCurrent(autoplay: Bool) {
+        guard let track = current, let url = sourceURL(for: track) else { return }
+        let item = AVPlayerItem(url: url)
+        rememberPlayed(track)
+        preloadedItem = nil
+        preloadedIndex = nil
+        player.removeAllItems()
+        player.insert(item, after: nil)
+        prepareNext()
         // Reprise : on se place au bon endroit dès que le son est prêt.
         resumeObserver = nil
         if pendingResume > 0 {
