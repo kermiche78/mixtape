@@ -20,6 +20,7 @@ extension View {
             .navigationDestination(for: Album.self) { AlbumDetailView(albumID: $0.id).zoomDestination(id: $0.id) }
             .navigationDestination(for: Artist.self) { ArtistDetailView(name: $0.name) }
             .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlistID: $0.id) }
+            .navigationDestination(for: SmartPlaylist.self) { SmartPlaylistView(playlist: $0).zoomDestination(id: $0.id) }
             .navigationDestination(for: DiscographyRoute.self) { DiscographyView(route: $0) }
             .navigationDestination(for: ArtistSongsRoute.self) { ArtistSongsView(artistName: $0.artist) }
     }

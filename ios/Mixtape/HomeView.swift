@@ -22,6 +22,8 @@ struct HomeView: View {
                         }
                     }
 
+                    SmartPlaylistsShelf()
+
                     let favs = library.tracks.filter { Stats.shared.isFavorite($0) }
                     let top = Stats.shared.top(library.tracks, limit: 8)
                     if !top.isEmpty {

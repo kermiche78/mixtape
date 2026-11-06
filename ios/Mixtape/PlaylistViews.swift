@@ -7,6 +7,12 @@ struct PlaylistsView: View {
 
     var body: some View {
         List {
+            Section {
+                SmartPlaylistRows()
+            } header: {
+                Text("Faites pour toi").font(.title3.bold()).foregroundStyle(.primary).textCase(nil)
+            }
+            Section {
             Button {
                 newName = ""
                 showNew = true
@@ -35,6 +41,9 @@ struct PlaylistsView: View {
             .onDelete { offsets in
                 let toDelete = offsets.map { library.playlists[$0] }
                 Task { for p in toDelete { await library.deletePlaylist(p) } }
+            }
+            } header: {
+                Text("Mes playlists").font(.title3.bold()).foregroundStyle(.primary).textCase(nil)
             }
         }
         .listStyle(.plain)
