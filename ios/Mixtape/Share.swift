@@ -6,8 +6,10 @@ import UIKit
 final class ShareManager: ObservableObject {
     static let shared = ShareManager()
 
-    /// Titre du son en cours de préparation (pour afficher « Préparation… »).
+    /// Titre du son ou de l'album en cours de préparation (pour afficher « Préparation… »).
     @Published private(set) var preparing: String?
+    /// Avancement pour un album : « 3/12 ».
+    @Published private(set) var progress: String?
 
     private init() {}
 
@@ -23,6 +25,66 @@ final class ShareManager: ObservableObject {
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
             }
         }
+    }
+
+    /// Partage un album entier : tous ses sons + la pochette, dans un seul fichier .zip.
+    func shareAlbum(_ album: Album, api: APIClient?, coverURL: URL?) {
+        guard preparing == nil, !album.tracks.isEmpty else { return }
+        preparing = album.isSingle ? (album.tracks.first?.title ?? album.name) : album.name
+        progress = "0/\(album.tracks.count)"
+        Task {
+            let zip = await prepareAlbum(album, api: api, coverURL: coverURL)
+            preparing = nil
+            progress = nil
+            if let zip {
+                present(zip)
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+        }
+    }
+
+    private func prepareAlbum(_ album: Album, api: APIClient?, coverURL: URL?) async -> URL? {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Partage", isDirectory: true)
+        try? FileManager.default.removeItem(at: root)
+        let name = Self.cleanName("\(album.artist) - \(album.isSingle ? (album.tracks.first?.title ?? album.name) : album.name)")
+        let folder = root.appendingPathComponent(name, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for (i, track) in album.tracks.enumerated() {
+                let number = String(format: "%02d", track.trackNumber ?? (i + 1))
+                let target = folder.appendingPathComponent("\(number) - \(Self.cleanName(track.title)).\(track.ext)")
+                if let local = DownloadManager.shared.localURL(for: track) {
+                    try FileManager.default.copyItem(at: local, to: target)
+                } else if let api {
+                    let (tmp, response) = try await URLSession.shared.download(from: api.streamURL(for: track))
+                    guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+                    try FileManager.default.moveItem(at: tmp, to: target)
+                } else {
+                    return nil
+                }
+                progress = "\(i + 1)/\(album.tracks.count)"
+            }
+            // La pochette, si le serveur en a une.
+            if let coverURL, let image = await ImageLoader.shared.image(for: coverURL), let data = image.jpegData(compressionQuality: 0.9) {
+                try? data.write(to: folder.appendingPathComponent("Pochette.jpg"))
+            }
+            return Self.zip(folder, into: root, name: name)
+        } catch {
+            return nil
+        }
+    }
+
+    /// iOS sait compresser un dossier en .zip tout seul (comme « Compresser » dans Fichiers).
+    private static func zip(_ folder: URL, into destination: URL, name: String) -> URL? {
+        var result: URL?
+        var coordinationError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: folder, options: .forUploading, error: &coordinationError) { zipped in
+            let target = destination.appendingPathComponent("\(name).zip")
+            try? FileManager.default.removeItem(at: target)
+            if (try? FileManager.default.copyItem(at: zipped, to: target)) != nil { result = target }
+        }
+        return result
     }
 
     /// Copie le son avec un joli nom (« Artiste - Titre.mp3 ») dans un dossier temporaire.
@@ -83,7 +145,7 @@ struct SharePreparingBanner: View {
         if let title = share.preparing {
             HStack(spacing: 10) {
                 ProgressView()
-                Text("Préparation de « \(title) »…")
+                Text("Préparation de « \(title) »…" + (share.progress.map { " \($0)" } ?? ""))
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
             }

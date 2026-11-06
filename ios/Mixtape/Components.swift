@@ -340,6 +340,11 @@ struct AlbumCell: View {
             } else {
                 Button { downloads.download(album.tracks, api: library.api) } label: { Label("Télécharger", systemImage: "arrow.down.circle") }
             }
+            Button {
+                ShareManager.shared.shareAlbum(album, api: library.api, coverURL: library.coverURL(album.coverTrack))
+            } label: {
+                Label(album.isSingle ? "Partager le single" : "Partager l'album", systemImage: "square.and.arrow.up")
+            }
         } preview: {
             VStack(alignment: .leading, spacing: 8) {
                 ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 12, placeholderSeed: album.id)

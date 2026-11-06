@@ -185,6 +185,11 @@ struct AlbumDetailView: View {
                         Button { album.tracks.forEach { if !stats.isFavorite($0) { stats.toggleFavorite($0) } } } label: {
                             Label("Tout ajouter aux favoris", systemImage: "heart")
                         }
+                        Button {
+                            ShareManager.shared.shareAlbum(album, api: library.api, coverURL: library.coverURL(album.coverTrack))
+                        } label: {
+                            Label(album.isSingle ? "Partager le single" : "Partager l'album", systemImage: "square.and.arrow.up")
+                        }
                     } label: { Image(systemName: "ellipsis") }
                 }
             }
