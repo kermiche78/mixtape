@@ -66,6 +66,8 @@ final class LibraryStore: ObservableObject {
             playlists = newPlaylists
             errorMessage = nil
             saveCache()
+        } catch APIError.unreachable {
+            // Serveur éteint : on garde la bibliothèque en cache, sans alerte.
         } catch {
             errorMessage = error.localizedDescription
         }
