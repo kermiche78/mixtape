@@ -247,7 +247,11 @@ struct ReelsView: View {
 
     var body: some View {
         GeometryReader { outer in
+            // Chaque reel fait exactement la hauteur de tout l'écran (sous la barre d'état et
+            // sous la barre du bas) : le défilement par page tombe pile, sans décalage.
             let topInset = outer.safeAreaInsets.top
+            let bottomInset = outer.safeAreaInsets.bottom
+            let pageHeight = outer.size.height + topInset + bottomInset
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
                     ForEach(engine.reels) { reel in
@@ -255,8 +259,9 @@ struct ReelsView: View {
                                  next: reel.id == currentID ? engine.next(after: reel.id) : nil,
                                  isActive: reel.id == currentID,
                                  topInset: topInset,
+                                 bottomInset: bottomInset,
                                  engine: engine) { goToNext(after: reel.id) }
-                            .frame(width: outer.size.width, height: outer.size.height + topInset)
+                            .frame(width: outer.size.width, height: pageHeight)
                     }
                 }
                 .scrollTargetLayout()
@@ -264,7 +269,7 @@ struct ReelsView: View {
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: $currentID)
             .scrollIndicators(.hidden)
-            .ignoresSafeArea(.container, edges: .top)
+            .ignoresSafeArea(.container, edges: .vertical)
         }
         .background(Color.black)
         .toolbar(.hidden, for: .navigationBar)
@@ -307,6 +312,7 @@ struct ReelPage: View {
     let next: Reel?
     let isActive: Bool
     let topInset: CGFloat
+    let bottomInset: CGFloat
     @ObservedObject var engine: ReelsEngine
     let onNext: () -> Void
 
@@ -322,8 +328,11 @@ struct ReelPage: View {
             info
             nextCard
         }
+        // Laisse la place à la barre du bas : le contenu reste visible et la couleur va jusqu'en bas.
+        .padding(.bottom, bottomInset)
         .foregroundStyle(.white)
         .background(background)
+        .clipped()
         .environment(\.colorScheme, .dark)
         .task(id: track.albumKey) {
             let c = await engine.color(for: track, library: library)
@@ -375,6 +384,18 @@ struct ReelPage: View {
                 }
                 .allowsHitTesting(false)
             }
+            .overlay(alignment: .bottomTrailing) {
+                VStack(spacing: 16) {
+                    let liked = stats.isFavorite(track)
+                    actionButton(liked ? "heart.fill" : "heart", "J'aime", tint: liked ? Color.accentPink : .white) { like(toggle: true) }
+                    actionButton("paperplane", "Partager") { ShareManager.shared.share(track, api: library.api) }
+                    actionButton("square.stack", "Album") { player.navRequest = .album(track.albumKey) }
+                    moreMenu
+                }
+                .shadow(color: .black.opacity(0.55), radius: 6)
+                .padding(.trailing, 8)
+                .padding(.bottom, 18)
+            }
             .overlay(alignment: .bottom) {
                 if isActive {
                     ReelProgressBar(clock: engine.clock, length: reel.length)
@@ -388,8 +409,7 @@ struct ReelPage: View {
     }
 
     private var info: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
                 Button { player.navRequest = .artist(artistName) } label: {
                     HStack(spacing: 8) {
                         ArtworkView(url: library.artistImageURL(name: artistName, fallback: track),
@@ -425,29 +445,18 @@ struct ReelPage: View {
                 .foregroundStyle(.white.opacity(0.55))
                 .padding(.top, 4)
 
-                Spacer(minLength: 8)
-
                 Button(action: listenFull) {
                     Label("Écouter en entier", systemImage: "play.fill")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 40)
+                        .frame(height: 42)
                         .background(.white, in: Capsule())
                 }
                 .buttonStyle(.plain)
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-
-            VStack(spacing: 14) {
-                let liked = stats.isFavorite(track)
-                actionButton(liked ? "heart.fill" : "heart", "J'aime", tint: liked ? Color.accentPink : .white) { like(toggle: true) }
-                actionButton("paperplane", "Partager") { ShareManager.shared.share(track, api: library.api) }
-                actionButton("square.stack", "Album") { player.navRequest = .album(track.albumKey) }
-                moreMenu
-            }
+                .padding(.top, 8)
         }
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.top, 12)
     }
