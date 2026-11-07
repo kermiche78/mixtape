@@ -200,7 +200,7 @@ struct ReplayView: View {
                                                 .font(.title3.bold())
                                                 .foregroundStyle(i == 0 ? Color.accentPink : .secondary)
                                                 .frame(width: 26)
-                                            ArtworkView(url: library.coverURL(item.artist.coverTrack), cornerRadius: 28, placeholderSeed: item.artist.id)
+                                            ArtworkView(url: library.artistImageURL(item.artist), cornerRadius: 28, placeholderSeed: item.artist.id)
                                                 .frame(width: 56, height: 56)
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(item.artist.name).font(.headline).lineLimit(1)

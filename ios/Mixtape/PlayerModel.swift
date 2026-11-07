@@ -198,6 +198,8 @@ final class PlayerModel: ObservableObject {
         loadCurrent(autoplay: true)
     }
 
+    func pause() { player.pause() }
+
     func togglePlayPause() {
         guard current != nil else { return }
         if isPlaying { player.pause() } else {

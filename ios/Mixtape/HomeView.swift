@@ -82,7 +82,7 @@ struct HomeView: View {
                             ForEach(library.artists) { artist in
                                 NavigationLink(value: artist) {
                                     VStack(spacing: 8) {
-                                        ArtworkView(url: library.coverURL(artist.coverTrack), cornerRadius: 60, placeholderSeed: artist.id)
+                                        ArtworkView(url: library.artistImageURL(artist), cornerRadius: 60, placeholderSeed: artist.id)
                                             .frame(width: 120, height: 120)
                                         Text(artist.name).font(.subheadline).lineLimit(1)
                                     }

@@ -251,6 +251,12 @@ struct AlbumDetailView: View {
             .padding(.horizontal, 44)
             .padding(.top, 20)
             .padding(.bottom, 22)
+
+            if let text = library.description(for: album), !text.isEmpty {
+                AlbumDescription(title: album.name, text: text)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 18)
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -356,7 +362,7 @@ struct ArtistsView: View {
         List(library.artists) { artist in
             NavigationLink(value: artist) {
                 HStack(spacing: 14) {
-                    ArtworkView(url: library.coverURL(artist.coverTrack), cornerRadius: 26, placeholderSeed: artist.id)
+                    ArtworkView(url: library.artistImageURL(artist), cornerRadius: 26, placeholderSeed: artist.id)
                         .frame(width: 52, height: 52)
                     Text(artist.name).font(.body)
                 }
@@ -506,7 +512,7 @@ struct ArtistDetailView: View {
             let stretch = max(minY, 0)
             ZStack(alignment: .bottomLeading) {
                 let side = max(geo.size.width, heroHeight + stretch)
-                ArtworkView(url: library.coverURL(artist.coverTrack), cornerRadius: 0, placeholderSeed: artist.id)
+                ArtworkView(url: library.artistImageURL(artist), cornerRadius: 0, placeholderSeed: artist.id)
                     .frame(width: side, height: side)
                     .frame(width: geo.size.width, height: heroHeight + stretch)
                     .clipped()
@@ -686,5 +692,49 @@ struct SongsView: View {
         .navigationTitle("Morceaux")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu(order: $order) } }
         .refreshable { await library.refresh() }
+    }
+}
+
+/// Explication de l'album (fichier « description » sur le PC) : 3 lignes puis « PLUS », comme Apple Music.
+struct AlbumDescription: View {
+    let title: String
+    let text: String
+    @State private var showAll = false
+
+    var body: some View {
+        Button { showAll = true } label: {
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("PLUS")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.primary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showAll) {
+            NavigationStack {
+                ScrollView {
+                    Text(text)
+                        .font(.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(20)
+                        .textSelection(.enabled)
+                }
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("OK") { showAll = false }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 }

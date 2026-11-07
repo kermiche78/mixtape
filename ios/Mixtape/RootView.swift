@@ -20,7 +20,7 @@ struct MainTabs: View {
     @EnvironmentObject private var player: PlayerModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
-    @State private var paths: [NavigationPath] = Array(repeating: NavigationPath(), count: 4)
+    @State private var paths: [NavigationPath] = Array(repeating: NavigationPath(), count: 5)
     @Namespace private var zoomNamespace
 
     var body: some View {
@@ -78,6 +78,9 @@ struct MainTabs: View {
                 Tab("Accueil", systemImage: "house.fill", value: 0) {
                     NavigationStack(path: $paths[0]) { HomeView() }
                 }
+                Tab("Reels", systemImage: "play.rectangle.on.rectangle.fill", value: 4) {
+                    NavigationStack(path: $paths[4]) { ReelsView() }
+                }
                 Tab("Bibliothèque", systemImage: "square.stack.fill", value: 1) {
                     NavigationStack(path: $paths[1]) { LibraryView() }
                 }
@@ -98,6 +101,10 @@ struct MainTabs: View {
                     .miniPlayerInset()
                     .tabItem { Label("Accueil", systemImage: "house.fill") }
                     .tag(0)
+
+                NavigationStack(path: $paths[4]) { ReelsView() }
+                    .tabItem { Label("Reels", systemImage: "play.rectangle.on.rectangle.fill") }
+                    .tag(4)
 
                 NavigationStack(path: $paths[1]) { LibraryView() }
                     .miniPlayerInset()

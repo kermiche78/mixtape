@@ -64,7 +64,7 @@ struct SearchView: View {
                     ForEach(artists.prefix(5)) { artist in
                         NavigationLink(value: artist) {
                             HStack(spacing: 12) {
-                                ArtworkView(url: library.coverURL(artist.coverTrack), cornerRadius: 26, placeholderSeed: artist.id)
+                                ArtworkView(url: library.artistImageURL(artist), cornerRadius: 26, placeholderSeed: artist.id)
                                     .frame(width: 52, height: 52)
                                 Text(artist.name)
                             }

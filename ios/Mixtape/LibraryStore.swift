@@ -12,10 +12,15 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var albums: [Album] = []
     @Published private(set) var artists: [Artist] = []
     private var byId: [String: Track] = [:]
+    private var lastExtras: LibraryExtras?
     private var albumsById: [String: Album] = [:]
     private var artistsByName: [String: Artist] = [:]
     /// Calculé une fois quand la bibliothèque change (et pas à chaque affichage).
     @Published private(set) var recentlyAdded: [Album] = []
+    /// Texte du fichier « description » de chaque album (clé = id de l'album).
+    @Published private(set) var albumDescriptions: [String: String] = [:]
+    /// Artistes qui ont une photo à eux (nom en minuscules → version de la photo).
+    @Published private(set) var artistPhotos: [String: Int] = [:]
 
     private var savedAddress: String {
         get { UserDefaults.standard.string(forKey: "serverAddress") ?? "" }
@@ -69,6 +74,8 @@ final class LibraryStore: ObservableObject {
             tracks = newTracks
             playlists = newPlaylists
             errorMessage = nil
+            // Descriptions et photos : facultatives (un ancien serveur ne les a pas).
+            if let extras = try? await api.extras() { apply(extras) }
             saveCache()
         } catch APIError.unreachable {
             // Serveur éteint : on garde la bibliothèque en cache, sans alerte.
@@ -78,6 +85,29 @@ final class LibraryStore: ObservableObject {
     }
 
     func track(_ id: String) -> Track? { byId[id] }
+
+    func description(for album: Album) -> String? { albumDescriptions[album.id] }
+
+    /// Photo de l'artiste posée sur le PC, sinon la pochette d'un de ses albums.
+    func artistImageURL(_ artist: Artist) -> URL? {
+        artistImageURL(name: artist.name, fallback: artist.coverTrack)
+    }
+
+    func artistImageURL(name: String, fallback: Track?) -> URL? {
+        if let version = artistPhotos[name.lowercased()], let api {
+            return api.artistPhotoURL(name: name, version: version)
+        }
+        return coverURL(fallback ?? artist(named: name)?.coverTrack)
+    }
+
+    private func apply(_ extras: LibraryExtras) {
+        lastExtras = extras
+        let descriptions = Dictionary(extras.albums.map { ("album:\($0.album.lowercased())", $0.description) },
+                                      uniquingKeysWith: { a, _ in a })
+        let photos = Dictionary(extras.artists.map { ($0.name.lowercased(), $0.photoVersion) }, uniquingKeysWith: { a, _ in a })
+        if descriptions != albumDescriptions { albumDescriptions = descriptions }
+        if photos != artistPhotos { artistPhotos = photos }
+    }
 
     func tracks(of playlist: Playlist) -> [Track] {
         playlist.trackIds.compactMap { byId[$0] }
@@ -171,10 +201,10 @@ final class LibraryStore: ObservableObject {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("library.json")
     }
 
-    private struct Cache: Codable { let tracks: [Track]; let playlists: [Playlist] }
+    private struct Cache: Codable { let tracks: [Track]; let playlists: [Playlist]; var extras: LibraryExtras? }
 
     private func saveCache() {
-        if let data = try? JSONEncoder().encode(Cache(tracks: tracks, playlists: playlists)) {
+        if let data = try? JSONEncoder().encode(Cache(tracks: tracks, playlists: playlists, extras: lastExtras)) {
             try? data.write(to: cacheURL)
         }
     }
@@ -185,5 +215,6 @@ final class LibraryStore: ObservableObject {
         tracks = cache.tracks
         playlists = cache.playlists
         rebuildIndexes()
+        if let extras = cache.extras { apply(extras) }
     }
 }

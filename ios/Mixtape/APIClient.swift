@@ -71,6 +71,14 @@ struct APIClient {
         try JSONDecoder().decode([Track].self, from: try await send("api/tracks"))
     }
 
+    func extras() async throws -> LibraryExtras {
+        try JSONDecoder().decode(LibraryExtras.self, from: try await send("api/extras"))
+    }
+
+    func artistPhotoURL(name: String, version: Int) -> URL {
+        url("api/artist-photo", query: [URLQueryItem(name: "name", value: name), URLQueryItem(name: "v", value: String(version))])
+    }
+
     func playlists() async throws -> [Playlist] {
         try JSONDecoder().decode([Playlist].self, from: try await send("api/playlists"))
     }
