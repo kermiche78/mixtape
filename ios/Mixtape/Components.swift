@@ -19,9 +19,23 @@ actor ImageLoader {
         request.cachePolicy = .returnCacheDataElseLoad
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
-              let image = UIImage(data: data) else { return nil }
+              let full = UIImage(data: data) else { return nil }
+        // Les pochettes du serveur peuvent faire 3000 px : on les réduit et on les décode
+        // ici, hors de l'écran, pour que le défilement reste fluide.
+        let image = await Self.prepared(full)
         memory.setObject(image, forKey: url as NSURL)
         return image
+    }
+
+    private static func prepared(_ image: UIImage) async -> UIImage {
+        let maxSide: CGFloat = 900
+        let side = max(image.size.width, image.size.height)
+        if side > maxSide {
+            let scale = maxSide / side
+            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            if let small = await image.byPreparingThumbnail(ofSize: size) { return small }
+        }
+        return await image.byPreparingForDisplay() ?? image
     }
 }
 

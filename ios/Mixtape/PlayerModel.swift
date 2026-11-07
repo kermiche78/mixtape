@@ -16,23 +16,36 @@ enum RepeatMode {
     }
 }
 
+/// Position de lecture, mise à jour 2 fois par seconde. Séparée de PlayerModel pour que
+/// seules les barres de progression se redessinent, pas toute l'app.
+@MainActor
+final class PlaybackClock: ObservableObject {
+    @Published var currentTime: Double = 0
+    @Published var bufferedTime: Double = 0
+}
+
 @MainActor
 final class PlayerModel: ObservableObject {
     @Published private(set) var queue: [Track] = []
     @Published private(set) var index: Int = 0
     @Published private(set) var isPlaying = false
-    @Published private(set) var currentTime: Double = 0
+    let clock = PlaybackClock()
+    private(set) var currentTime: Double = 0 {
+        didSet { if clock.currentTime != currentTime { clock.currentTime = currentTime } }
+    }
     @Published private(set) var duration: Double = 0
     @Published private(set) var isBuffering = false
     /// Jusqu'où le son est déjà chargé (en secondes), comme la barre grise de YouTube.
-    @Published private(set) var bufferedTime: Double = 0
+    private(set) var bufferedTime: Double = 0 {
+        didSet { if clock.bufferedTime != bufferedTime { clock.bufferedTime = bufferedTime } }
+    }
     @Published private(set) var shuffle = false
     @Published var repeatMode: RepeatMode = .off
     @Published var showNowPlaying = false
     /// Demande d'ouvrir une page depuis le lecteur (artiste ou album du son en cours).
     @Published var navRequest: NavRequest?
     /// Où tu t'es arrêté dans chaque album (pour « Reprendre »), gardé entre les lancements.
-    @Published private(set) var albumProgress: [String: AlbumProgress] = {
+    private(set) var albumProgress: [String: AlbumProgress] = {
         guard let data = UserDefaults.standard.data(forKey: "albumProgress"),
               let saved = try? JSONDecoder().decode([String: AlbumProgress].self, from: data) else { return [:] }
         return saved
@@ -72,7 +85,8 @@ final class PlayerModel: ObservableObject {
             Task { @MainActor in
                 guard let self, !self.isSeeking else { return }
                 self.currentTime = time.seconds.isFinite ? time.seconds : 0
-                if let d = self.player.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
+                // Ne republier la durée que si elle change vraiment (sinon toute l'app se redessine).
+                if let d = self.player.currentItem?.duration.seconds, d.isFinite, d > 0, abs(d - self.duration) > 0.5 { self.duration = d }
                 self.bufferedTime = self.loadedEnd()
                 // Mémorise la position toutes les 5 secondes.
                 let s = Int(self.currentTime)
@@ -84,8 +98,10 @@ final class PlayerModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 guard let self else { return }
-                self.isPlaying = status == .playing || status == .waitingToPlayAtSpecifiedRate
-                self.isBuffering = status == .waitingToPlayAtSpecifiedRate
+                let playing = status == .playing || status == .waitingToPlayAtSpecifiedRate
+                let buffering = status == .waitingToPlayAtSpecifiedRate
+                if self.isPlaying != playing { self.isPlaying = playing }
+                if self.isBuffering != buffering { self.isBuffering = buffering }
                 if status == .paused { self.saveAlbumProgress() }
                 self.updateNowPlayingInfo()
             }

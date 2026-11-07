@@ -336,7 +336,7 @@ struct ReplayView: View {
         var byKey: [String: Int] = [:]
         for item in tracks { byKey[item.track.albumKey, default: 0] += item.plays }
         return byKey
-            .compactMap { key, n in library.albums.first(where: { $0.id == key }).map { RankedAlbum(album: $0, plays: n) } }
+            .compactMap { key, n in library.album(id: key).map { RankedAlbum(album: $0, plays: n) } }
             .sorted { $0.plays != $1.plays ? $0.plays > $1.plays : $0.album.name < $1.album.name }
     }
 }

@@ -12,6 +12,10 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var albums: [Album] = []
     @Published private(set) var artists: [Artist] = []
     private var byId: [String: Track] = [:]
+    private var albumsById: [String: Album] = [:]
+    private var artistsByName: [String: Artist] = [:]
+    /// Calculé une fois quand la bibliothèque change (et pas à chaque affichage).
+    @Published private(set) var recentlyAdded: [Album] = []
 
     private var savedAddress: String {
         get { UserDefaults.standard.string(forKey: "serverAddress") ?? "" }
@@ -79,22 +83,17 @@ final class LibraryStore: ObservableObject {
         playlist.trackIds.compactMap { byId[$0] }
     }
 
-    func album(for track: Track) -> Album? {
-        albums.first { $0.id == track.albumKey }
-    }
+    func album(for track: Track) -> Album? { albumsById[track.albumKey] }
 
-    func artist(named name: String) -> Artist? {
-        artists.first { $0.name.lowercased() == name.lowercased() }
-    }
+    func album(id: String) -> Album? { albumsById[id] }
+
+    func artist(named name: String) -> Artist? { artistsByName[name.lowercased()] }
 
     func coverURL(_ track: Track?) -> URL? {
         guard let track, let api else { return nil }
         return api.coverURL(for: track)
     }
 
-    var recentlyAdded: [Album] {
-        Array(albums.sorted { $0.latestAdded > $1.latestAdded }.prefix(12))
-    }
 
     // MARK: Playlists
 
@@ -156,6 +155,9 @@ final class LibraryStore: ObservableObject {
                           albums: albums.filter { keys.contains($0.id) })
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        albumsById = Dictionary(albums.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        artistsByName = Dictionary(artists.map { ($0.name.lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
+        recentlyAdded = Array(albums.sorted { $0.latestAdded > $1.latestAdded }.prefix(12))
     }
 
     private static func mostCommon(_ values: [String]) -> String? {

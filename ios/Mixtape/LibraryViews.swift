@@ -143,7 +143,7 @@ struct AlbumDetailView: View {
     @State private var pageColor: Color = Color(white: 0.09)
     let albumID: String
 
-    private var album: Album? { library.albums.first { $0.id == albumID } }
+    private var album: Album? { library.album(id: albumID) }
 
     var body: some View {
         if let album {

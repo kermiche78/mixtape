@@ -55,7 +55,7 @@ struct MainTabs: View {
         case .artist(let name):
             artist = library.artist(named: name); album = nil
         case .album(let id):
-            artist = nil; album = library.albums.first { $0.id == id }
+            artist = nil; album = library.album(id: id)
         }
         guard artist != nil || album != nil else { return }
         player.showNowPlaying = false
@@ -381,15 +381,24 @@ struct MiniProgressLine: View {
     @EnvironmentObject private var player: PlayerModel
 
     var body: some View {
-        let total = max(player.duration, 0.1)
+        MiniProgressContent(clock: player.clock, duration: player.duration)
+    }
+}
+
+private struct MiniProgressContent: View {
+    @ObservedObject var clock: PlaybackClock
+    let duration: Double
+
+    var body: some View {
+        let total = max(duration, 0.1)
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.10))
                 Capsule().fill(Color.primary.opacity(0.25))
-                    .frame(width: geo.size.width * min(max(player.bufferedTime / total, 0), 1))
-                    .animation(.linear(duration: 0.5), value: player.bufferedTime)
+                    .frame(width: geo.size.width * min(max(clock.bufferedTime / total, 0), 1))
+                    .animation(.linear(duration: 0.5), value: clock.bufferedTime)
                 Capsule().fill(Color.accentPink)
-                    .frame(width: geo.size.width * min(max(player.currentTime / total, 0), 1))
+                    .frame(width: geo.size.width * min(max(clock.currentTime / total, 0), 1))
             }
         }
         .frame(height: 2.5)

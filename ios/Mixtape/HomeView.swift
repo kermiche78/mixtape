@@ -93,10 +93,9 @@ struct HomeView: View {
                         }
                     }
 
-                    let mix = Array(library.tracks.shuffled().prefix(30))
-                    if !mix.isEmpty {
+                    if !library.tracks.isEmpty {
                         Button {
-                            player.play(mix)
+                            player.play(Array(library.tracks.shuffled().prefix(30)))
                         } label: {
                             HStack(spacing: 14) {
                                 Image(systemName: "shuffle")

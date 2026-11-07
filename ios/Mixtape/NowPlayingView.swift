@@ -76,7 +76,7 @@ struct NowPlayingView: View {
                 }
                 .padding(.top, 24)
 
-                Scrubber(value: player.currentTime, total: max(player.duration, 0.1), buffered: player.bufferedTime) { player.seek(to: $0) }
+                LiveScrubber(clock: player.clock)
                     .padding(.top, 18)
 
                 // Commandes
@@ -204,6 +204,16 @@ private struct PressableStyle: ButtonStyle {
 }
 
 /// Barre de progression qui grossit quand on la touche.
+/// Barre de progression du lecteur : la seule partie qui suit la position en direct.
+struct LiveScrubber: View {
+    @EnvironmentObject private var player: PlayerModel
+    @ObservedObject var clock: PlaybackClock
+
+    var body: some View {
+        Scrubber(value: clock.currentTime, total: max(player.duration, 0.1), buffered: clock.bufferedTime) { player.seek(to: $0) }
+    }
+}
+
 struct Scrubber: View {
     let value: Double
     let total: Double
