@@ -9,6 +9,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
+                if library.isOffline { OfflineBanner().padding(.horizontal, 20) }
                 if library.tracks.isEmpty && !library.isLoading {
                     EmptyLibraryView().padding(.top, 60)
                 } else {

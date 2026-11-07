@@ -22,11 +22,22 @@ struct MainTabs: View {
     @State private var tab = 0
     @State private var paths: [NavigationPath] = Array(repeating: NavigationPath(), count: 5)
     @Namespace private var zoomNamespace
+    @StateObject private var standby = StandbyMonitor()
 
     var body: some View {
         tabs
             .environment(\.zoomNamespace, zoomNamespace)
             .overlay(alignment: .top) { SharePreparingBanner() }
+            // Mode veille : iPhone à l'horizontale et en charge.
+            .overlay {
+                if standby.isActive {
+                    StandbyView(angle: standby.angle) { standby.dismiss() }
+                        .transition(.opacity)
+                }
+            }
+            .onChange(of: standby.isActive) { _, active in
+                if active { player.showNowPlaying = false }
+            }
             .sheet(isPresented: $player.showNowPlaying) {
                 NowPlayingView()
             }
@@ -332,6 +343,7 @@ struct SettingsView: View {
     @State private var confirmLogout = false
     @ObservedObject private var downloads = DownloadManager.shared
     @AppStorage("autoplay") private var autoplay = true
+    @AppStorage("standbyEnabled") private var standbyEnabled = true
 
     var body: some View {
         List {
@@ -362,6 +374,12 @@ struct SettingsView: View {
                 Text("Lecture")
             } footer: {
                 Text("Quand ta file d'attente est finie, Mixtape enchaîne sur des sons du même artiste et sur tes favoris.")
+            }
+            Section {
+                Toggle("Mode veille", isOn: $standbyEnabled)
+                    .tint(Color.accentPink)
+            } footer: {
+                Text("Quand l'iPhone est posé à l'horizontale et en charge, Mixtape affiche la pochette, l'heure et les commandes en grand.")
             }
             Section("Téléchargements") {
                 LabeledContent("Sons téléchargés", value: "\(downloads.downloaded.count)")

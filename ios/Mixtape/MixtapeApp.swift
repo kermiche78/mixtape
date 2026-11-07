@@ -18,6 +18,7 @@ struct MixtapeApp: App {
                 .onAppear {
                     player.library = library
                     SmartPlaylistStore.shared.attach(library)
+                    player.restoreSession()
                 }
         }
     }

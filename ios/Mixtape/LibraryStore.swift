@@ -4,7 +4,12 @@ import SwiftUI
 @MainActor
 final class LibraryStore: ObservableObject {
     @Published private(set) var api: APIClient?
-    @Published var tracks: [Track] = [] { didSet { rebuildIndexes() } }
+    /// Sons affichés : tous, ou seulement les téléchargés quand le PC est injoignable.
+    @Published private(set) var tracks: [Track] = [] { didSet { rebuildIndexes() } }
+    /// Le PC ne répond pas : l'app passe toute seule en mode hors ligne.
+    @Published private(set) var isOffline = false
+    private var allTracks: [Track] = []
+    private var retryTask: Task<Void, Never>?
     @Published var playlists: [Playlist] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -56,8 +61,10 @@ final class LibraryStore: ObservableObject {
         savedAddress = ""
         savedPassword = ""
         api = nil
+        allTracks = []
         tracks = []
         playlists = []
+        setOffline(false)
         try? FileManager.default.removeItem(at: cacheURL)
     }
 
@@ -71,20 +78,52 @@ final class LibraryStore: ObservableObject {
             async let t = api.tracks()
             async let p = api.playlists()
             let (newTracks, newPlaylists) = try await (t, p)
-            tracks = newTracks
+            allTracks = newTracks
+            setOffline(false)
+            showTracks()
             playlists = newPlaylists
             errorMessage = nil
             // Descriptions et photos : facultatives (un ancien serveur ne les a pas).
             if let extras = try? await api.extras() { apply(extras) }
             saveCache()
         } catch APIError.unreachable {
-            // Serveur éteint : on garde la bibliothèque en cache, sans alerte.
+            // Serveur éteint : pas d'alerte, on passe en mode hors ligne (sons téléchargés seulement).
+            setOffline(true)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     func track(_ id: String) -> Track? { byId[id] }
+
+    // MARK: Hors ligne
+
+    private func setOffline(_ offline: Bool) {
+        guard offline != isOffline else { return }
+        isOffline = offline
+        showTracks()
+        retryTask?.cancel()
+        retryTask = nil
+        if offline {
+            // Réessaie toutes les 20 secondes : dès que le PC répond, tout revient.
+            retryTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(20))
+                    guard let self, self.isOffline, let api = self.api else { return }
+                    if (try? await api.ping()) != nil {
+                        await self.refresh()
+                        return
+                    }
+                }
+            }
+        }
+    }
+
+    /// Met à jour la liste affichée (et donc albums, artistes, playlists automatiques…).
+    func showTracks() {
+        let visible = isOffline ? allTracks.filter { DownloadManager.shared.isDownloaded($0) } : allTracks
+        if visible != tracks { tracks = visible }
+    }
 
     func description(for album: Album) -> String? { albumDescriptions[album.id] }
 
@@ -204,7 +243,7 @@ final class LibraryStore: ObservableObject {
     private struct Cache: Codable { let tracks: [Track]; let playlists: [Playlist]; var extras: LibraryExtras? }
 
     private func saveCache() {
-        if let data = try? JSONEncoder().encode(Cache(tracks: tracks, playlists: playlists, extras: lastExtras)) {
+        if let data = try? JSONEncoder().encode(Cache(tracks: allTracks, playlists: playlists, extras: lastExtras)) {
             try? data.write(to: cacheURL)
         }
     }
@@ -212,6 +251,7 @@ final class LibraryStore: ObservableObject {
     private func loadCache() {
         guard let data = try? Data(contentsOf: cacheURL),
               let cache = try? JSONDecoder().decode(Cache.self, from: data) else { return }
+        allTracks = cache.tracks
         tracks = cache.tracks
         playlists = cache.playlists
         rebuildIndexes()

@@ -440,10 +440,10 @@ final class PlayerModel: ObservableObject {
         prepareNext()
     }
 
-    private func loadCurrent(autoplay: Bool) {
+    private func loadCurrent(autoplay: Bool, countPlay: Bool = true) {
         guard let track = current, let url = sourceURL(for: track) else { return }
         let item = AVPlayerItem(url: url)
-        rememberPlayed(track)
+        if countPlay { rememberPlayed(track) }
         preloadedItem = nil
         preloadedIndex = nil
         player.removeAllItems()
@@ -470,7 +470,43 @@ final class PlayerModel: ObservableObject {
         loadArtwork(for: track)
     }
 
+    // MARK: Reprendre où j'en étais
+
+    private struct Session: Codable {
+        var trackIds: [String]
+        var currentId: String
+        var time: Double
+    }
+
+    /// Garde la file, le son et la position, pour tout retrouver au prochain lancement.
+    private func saveSession() {
+        // Rien à reprendre au tout début d'un son (et évite d'écraser la position pendant la reprise).
+        guard let track = current, currentTime >= 1 else { return }
+        let start = max(0, index - 50)
+        let end = min(queue.count, start + 200)
+        let session = Session(trackIds: queue[start..<end].map(\.id), currentId: track.id, time: currentTime)
+        if let data = try? JSONEncoder().encode(session) { UserDefaults.standard.set(data, forKey: "lastSession") }
+    }
+
+    /// Au lancement : le dernier son revient dans le mini-lecteur, en pause, au bon moment.
+    func restoreSession() {
+        guard queue.isEmpty, let library,
+              let data = UserDefaults.standard.data(forKey: "lastSession"),
+              let session = try? JSONDecoder().decode(Session.self, from: data) else { return }
+        let tracks = session.trackIds.compactMap { library.track($0) }
+        guard let i = tracks.firstIndex(where: { $0.id == session.currentId }) else { return }
+        queue = tracks
+        originalQueue = tracks
+        shuffle = false
+        index = i
+        pendingResume = session.time > 1 ? session.time : 0
+        loadCurrent(autoplay: false, countPlay: false)
+        // Affiche tout de suite la bonne position dans le mini-lecteur.
+        if session.time > 1 { currentTime = session.time }
+    }
+
     private func saveAlbumProgress() {
+        saveSession()
         guard let track = current, !track.albumKey.hasPrefix("single:") else { return }
         albumProgress[track.albumKey] = AlbumProgress(trackId: track.id, time: currentTime, updatedAt: Date().timeIntervalSince1970)
         persistAlbumProgress()

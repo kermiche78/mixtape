@@ -35,6 +35,7 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if library.isOffline { OfflineBanner().padding(.bottom, 8) }
                 ForEach(LibrarySection.allCases) { section in
                     NavigationLink(value: section) {
                         HStack(spacing: 14) {
@@ -86,6 +87,8 @@ enum SortOrder: String, CaseIterable, Identifiable {
     case title = "Titre"
     case artist = "Artiste"
     case recent = "Ajout récent"
+    case plays = "Plus écoutés"
+    case year = "Année"
     var id: String { rawValue }
 }
 
@@ -105,30 +108,50 @@ struct SortMenu: View {
 
 struct AlbumsView: View {
     @EnvironmentObject private var library: LibraryStore
+    @ObservedObject private var stats = Stats.shared
+    @ObservedObject private var downloads = DownloadManager.shared
     @AppStorage("albumSort") private var order: SortOrder = .title
+    @AppStorage("albumFilter") private var filter: LibraryFilter = .all
     private let columns = [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
 
-    private var sorted: [Album] {
+    private var shown: [Album] {
+        let base = library.albums.filter { $0.matches(filter, stats: stats, downloads: downloads) }
         switch order {
-        case .title: return library.albums
-        case .artist: return library.albums.sorted {
+        case .title: return base
+        case .artist: return base.sorted {
             let c = $0.artist.localizedCaseInsensitiveCompare($1.artist)
             return c == .orderedSame ? $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending : c == .orderedAscending
         }
-        case .recent: return library.albums.sorted { $0.latestAdded > $1.latestAdded }
+        case .recent: return base.sorted { $0.latestAdded > $1.latestAdded }
+        case .plays:
+            let plays = Dictionary(base.map { a in (a.id, a.tracks.reduce(0) { $0 + stats.plays($1) }) }, uniquingKeysWith: { x, _ in x })
+            return base.sorted { (plays[$0.id] ?? 0) > (plays[$1.id] ?? 0) }
+        case .year: return base.sorted { $0.sortYear != $1.sortYear ? $0.sortYear > $1.sortYear : $0.name < $1.name }
         }
     }
 
     var body: some View {
+        let albums = shown
         ScrollView {
             LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                ForEach(sorted) { album in
+                ForEach(albums) { album in
                     NavigationLink(value: album) { AlbumCell(album: album) }.buttonStyle(.plain)
                 }
             }
             .padding(20)
         }
-        .overlay { if library.albums.isEmpty { EmptyLibraryView() } }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            FilterChips(selection: $filter, options: LibraryFilter.albumOptions)
+                .background(.bar)
+        }
+        .overlay {
+            if library.albums.isEmpty {
+                EmptyLibraryView()
+            } else if albums.isEmpty {
+                ContentUnavailableView("Aucun album", systemImage: "line.3.horizontal.decrease.circle",
+                                       description: Text("Aucun album ne correspond à « \(filter.rawValue) »."))
+            }
+        }
         .navigationTitle("Albums")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu(order: $order) } }
         .refreshable { await library.refresh() }
@@ -662,21 +685,29 @@ struct ArtistSongsView: View {
 struct SongsView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
+    @ObservedObject private var stats = Stats.shared
+    @ObservedObject private var downloads = DownloadManager.shared
     @AppStorage("songSort") private var order: SortOrder = .title
+    @AppStorage("songFilter") private var filter: LibraryFilter = .all
 
-    private var sorted: [Track] {
+    private var shown: [Track] {
+        let base = library.tracks.filter { $0.matches(filter, stats: stats, downloads: downloads) }
         switch order {
-        case .title: return library.tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .artist: return library.tracks.sorted {
+        case .title: return base.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .artist: return base.sorted {
             let c = $0.displayArtist.localizedCaseInsensitiveCompare($1.displayArtist)
             return c == .orderedSame ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending : c == .orderedAscending
         }
-        case .recent: return library.tracks.sorted { $0.createdAt > $1.createdAt }
+        case .recent: return base.sorted { $0.createdAt > $1.createdAt }
+        case .plays: return base.sorted { stats.plays($0) > stats.plays($1) }
+        case .year:
+            let years = Dictionary(base.map { t in (t.id, library.album(for: t)?.sortYear ?? 0) }, uniquingKeysWith: { x, _ in x })
+            return base.sorted { (years[$0.id] ?? 0) > (years[$1.id] ?? 0) }
         }
     }
 
     var body: some View {
-        let songs = sorted
+        let songs = shown
         List {
             if !songs.isEmpty {
                 PlayShuffleButtons(play: { player.play(songs) }, shuffle: { player.play(songs, shuffled: true) })
@@ -688,7 +719,18 @@ struct SongsView: View {
             }
         }
         .listStyle(.plain)
-        .overlay { if songs.isEmpty { EmptyLibraryView() } }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            FilterChips(selection: $filter, options: LibraryFilter.songOptions)
+                .background(.bar)
+        }
+        .overlay {
+            if library.tracks.isEmpty {
+                EmptyLibraryView()
+            } else if songs.isEmpty {
+                ContentUnavailableView("Aucun son", systemImage: "line.3.horizontal.decrease.circle",
+                                       description: Text("Aucun son ne correspond à « \(filter.rawValue) »."))
+            }
+        }
         .navigationTitle("Morceaux")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { SortMenu(order: $order) } }
         .refreshable { await library.refresh() }
