@@ -51,6 +51,21 @@ jobs:
           zip -qry Mixtape.ipa Payload
           ls -lh Mixtape.ipa
 
+      - name: Envoyer l'app sur le PC (copie de secours)
+        continue-on-error: true
+        env:
+          MIXTAPE_URL: ${{ secrets.MIXTAPE_URL }}
+          MIXTAPE_UPLOAD_KEY: ${{ secrets.MIXTAPE_UPLOAD_KEY }}
+        run: |
+          if [ -z "$MIXTAPE_URL" ] || [ -z "$MIXTAPE_UPLOAD_KEY" ]; then
+            echo "Secrets MIXTAPE_URL / MIXTAPE_UPLOAD_KEY absents : envoi au PC ignore."
+            exit 0
+          fi
+          curl -fsS --retry 3 --retry-delay 10 --max-time 180 -X POST \
+            -H "X-Mixtape-Key: $MIXTAPE_UPLOAD_KEY" -H "X-Mixtape-Build: ${{ github.run_number }}" \
+            -H "Content-Type: application/octet-stream" --data-binary @ios/Mixtape.ipa \
+            "$MIXTAPE_URL/app/upload"
+
       - uses: actions/upload-artifact@v4
         with:
           name: Mixtape-ipa
