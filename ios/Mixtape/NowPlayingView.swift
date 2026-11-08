@@ -9,6 +9,8 @@ struct NowPlayingView: View {
     @State private var showQueue = false
     @State private var showParty = false
     @State private var annotating = false
+    @State private var showClip = false
+    @State private var showClipFullScreen = false
     @ObservedObject private var party = PartySession.shared
 
     var body: some View {
@@ -28,10 +30,38 @@ struct NowPlayingView: View {
                 if showQueue {
                     QueuePanel()
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
+                } else if let track, showClip, library.hasClip(track), let clipURL = library.api?.clipURL(for: track) {
+                    Spacer(minLength: 0)
+                    // Clip vidéo à la place de la pochette (le son continue de venir du lecteur).
+                    ClipPlayerView(clock: player.clock, url: clipURL)
+                        .frame(width: side, height: side * 9 / 16)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay(alignment: .topLeading) { clipChip("Pochette", icon: "photo") { showClip = false } }
+                        .overlay(alignment: .bottomTrailing) {
+                            Button { showClipFullScreen = true } label: {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.footnote.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 34, height: 34)
+                                    .background(.black.opacity(0.55), in: Circle())
+                            }
+                            .padding(8)
+                            .accessibilityLabel("Clip en plein écran")
+                        }
+                        .shadow(color: .black.opacity(0.45), radius: 30, y: 16)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: side)
+                        .transition(.opacity)
+                    Spacer(minLength: 0)
                 } else {
                     Spacer(minLength: 0)
                     ArtworkView(url: library.coverURL(track), cornerRadius: 14, placeholderSeed: track?.albumKey ?? "")
                         .frame(width: side, height: side)
+                        .overlay(alignment: .topLeading) {
+                            if let track, library.hasClip(track) {
+                                clipChip("Clip", icon: "play.rectangle.fill") { showClip = true }
+                            }
+                        }
                         .overlay(alignment: .bottom) {
                             if let track { AnnotationBubble(clock: player.clock, trackId: track.id) }
                         }
@@ -158,6 +188,23 @@ struct NowPlayingView: View {
         .presentationDragIndicator(.hidden)
         .onChange(of: player.current == nil) { _, isEmpty in if isEmpty { dismiss() } }
         .sheet(isPresented: $showParty) { PartySheet() }
+        .fullScreenCover(isPresented: $showClipFullScreen) { ClipFullScreen() }
+    }
+
+    /// Petite pastille « Clip » / « Pochette » posée sur la pochette.
+    private func clipChip(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.3)) { action() }
+        } label: {
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.55), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(10)
     }
 
     private func controlButton(_ icon: String, size: CGFloat, action: @escaping () -> Void) -> some View {

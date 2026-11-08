@@ -259,6 +259,10 @@ struct APIClient {
         url("api/stream/\(track.id).\(track.ext)")
     }
 
+    func clipURL(for track: Track) -> URL {
+        url("api/clip/\(track.id)")
+    }
+
     func coverURL(for track: Track) -> URL? {
         guard track.hasCover else { return nil }
         return url("api/tracks/\(track.id)/cover", query: [URLQueryItem(name: "v", value: String(Int(track.updatedAt)))])

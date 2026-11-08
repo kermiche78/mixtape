@@ -26,6 +26,8 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var albumDescriptions: [String: String] = [:]
     /// Fichier « credits » de chaque album, déjà découpé (clé = id de l'album).
     @Published private(set) var albumCredits: [String: AlbumCredits] = [:]
+    /// Sons qui ont un clip vidéo.
+    @Published private(set) var clipIds: Set<String> = []
     /// Artistes qui ont une photo à eux (nom en minuscules → version de la photo).
     @Published private(set) var artistPhotos: [String: Int] = [:]
 
@@ -131,6 +133,8 @@ final class LibraryStore: ObservableObject {
 
     func credits(for album: Album) -> AlbumCredits? { albumCredits[album.id] }
 
+    func hasClip(_ track: Track) -> Bool { clipIds.contains(track.id) }
+
     /// Photo de l'artiste posée sur le PC, sinon la pochette d'un de ses albums.
     func artistImageURL(_ artist: Artist) -> URL? {
         artistImageURL(name: artist.name, fallback: artist.coverTrack)
@@ -156,6 +160,8 @@ final class LibraryStore: ObservableObject {
             if !parsed.isEmpty { credits["album:\(info.album.lowercased())"] = parsed }
         }
         if credits != albumCredits { albumCredits = credits }
+        let clips = Set(extras.clips ?? [])
+        if clips != clipIds { clipIds = clips }
         if photos != artistPhotos { artistPhotos = photos }
     }
 

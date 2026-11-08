@@ -421,6 +421,13 @@ struct SettingsView: View {
                 AccentPicker()
             }
             Section {
+                AppIconPicker()
+            } header: {
+                Text("Icône de l'app")
+            } footer: {
+                Text("Pour ta propre icône : envoie l'image à Claude, ou glisse-la sur GitHub dans le dossier ios/icons en la nommant « perso ». Elle apparaît ici à la prochaine mise à jour.")
+            }
+            Section {
                 NavigationLink {
                     AlarmSettingsView()
                 } label: {

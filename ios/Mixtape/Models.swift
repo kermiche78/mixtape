@@ -28,6 +28,8 @@ struct LibraryExtras: Codable {
     struct ArtistInfo: Codable { let name: String; let photoVersion: Int }
     var albums: [AlbumInfo]
     var artists: [ArtistInfo]
+    /// Sons qui ont un clip vidéo sur le PC.
+    var clips: [String]?
 }
 
 struct Album: Identifiable, Hashable {

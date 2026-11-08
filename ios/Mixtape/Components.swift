@@ -215,6 +215,7 @@ struct TrackMenu: View {
     @State private var showCredits = false
     @State private var showEditor = false
     @State private var showAnnotations = false
+    @State private var showStory = false
     @AppStorage("manageMode") private var manageMode = false
 
     var body: some View {
@@ -237,6 +238,9 @@ struct TrackMenu: View {
             Button { player.addToQueue(track) } label: { Label("Lire en dernier", systemImage: "text.line.last.and.arrowtriangle.forward") }
             Button { ShareManager.shared.share(track, api: library.api) } label: {
                 Label("Partager le son", systemImage: "square.and.arrow.up")
+            }
+            Button { showStory = true } label: {
+                Label("Carte pour story", systemImage: "rectangle.portrait.on.rectangle.portrait")
             }
             Menu {
                 Button {
@@ -280,6 +284,7 @@ struct TrackMenu: View {
         .sheet(isPresented: $showCredits) { TrackCreditsSheet(track: track) }
         .sheet(isPresented: $showEditor) { TrackEditorView(track: track) }
         .sheet(isPresented: $showAnnotations) { AnnotationsListSheet(track: track) }
+        .sheet(isPresented: $showStory) { StoryCardSheet(track: track) }
     }
 }
 
