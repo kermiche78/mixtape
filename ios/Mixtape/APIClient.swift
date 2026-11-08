@@ -290,6 +290,10 @@ struct APIClient {
         url("api/clip/\(track.id)")
     }
 
+    func animatedCoverURL(for track: Track, version: Int) -> URL {
+        url("api/animated-cover/\(track.id)", query: [URLQueryItem(name: "v", value: String(version))])
+    }
+
     func coverURL(for track: Track) -> URL? {
         guard track.hasCover else { return nil }
         return url("api/tracks/\(track.id)/cover", query: [URLQueryItem(name: "v", value: String(Int(track.updatedAt)))])

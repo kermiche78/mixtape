@@ -30,6 +30,8 @@ struct LibraryExtras: Codable {
     var artists: [ArtistInfo]
     /// Sons qui ont un clip vidéo sur le PC.
     var clips: [String]?
+    /// Sons dont l'album a une pochette animée (avec sa version, pour savoir quand la retélécharger).
+    var animatedCovers: [String: Int]?
 }
 
 struct Album: Identifiable, Hashable {

@@ -375,6 +375,7 @@ struct SettingsView: View {
     @AppStorage("autoplay") private var autoplay = true
     @AppStorage("standbyEnabled") private var standbyEnabled = true
     @AppStorage("showAnnotations") private var showAnnotations = true
+    @AppStorage("animatedCoversOn") private var animatedCoversOn = true
     @AppStorage("manageMode") private var manageModeOn = false
     @ObservedObject private var backup = BackupManager.shared
     @State private var confirmRestore = false
@@ -407,10 +408,12 @@ struct SettingsView: View {
                     .tint(Color.accentPink)
                 Toggle("Afficher les annotations", isOn: $showAnnotations)
                     .tint(Color.accentPink)
+                Toggle("Pochettes animées", isOn: $animatedCoversOn)
+                    .tint(Color.accentPink)
             } header: {
                 Text("Lecture")
             } footer: {
-                Text("Lecture continue : quand ta file d'attente est finie, Mixtape enchaîne sur des sons du même artiste et sur tes favoris. Annotations : les bulles et les repères des passages commentés dans le lecteur.")
+                Text("Lecture continue : quand ta file d'attente est finie, Mixtape enchaîne sur des sons du même artiste et sur tes favoris. Annotations : les bulles et les repères des passages commentés dans le lecteur. Pochettes animées : la vidéo « cover animé » posée dans le dossier d'un album tourne à la place de la pochette (menu « … » d'un album pour garder la pochette fixe sur cet album seulement).")
             }
             Section {
                 Toggle("Mode veille", isOn: $standbyEnabled)

@@ -219,6 +219,7 @@ struct AlbumDetailView: View {
                         } label: {
                             Label(album.isSingle ? "Partager le single" : "Partager l'album", systemImage: "square.and.arrow.up")
                         }
+                        AnimatedCoverMenuButton(album: album)
                         if manageMode {
                             Button {
                                 Task { try? await library.api?.lyricsPriority(trackIds: album.tracks.map(\.id)) }
@@ -248,7 +249,7 @@ struct AlbumDetailView: View {
     // Pochette, titre, artiste, infos, puis aléatoire · Lire · +
     private func header(_ album: Album) -> some View {
         VStack(spacing: 0) {
-            ArtworkView(url: library.coverURL(album.coverTrack), cornerRadius: 10, placeholderSeed: album.id)
+            AnimatedArtworkView(track: album.coverTrack, cornerRadius: 10, placeholderSeed: album.id)
                 .frame(width: 270, height: 270)
                 .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
                 .padding(.top, 8)

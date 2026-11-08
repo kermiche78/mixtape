@@ -28,6 +28,9 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var albumCredits: [String: AlbumCredits] = [:]
     /// Sons qui ont un clip vidéo.
     @Published private(set) var clipIds: Set<String> = []
+    @Published private(set) var animatedCovers: [String: Int] = [:]
+    /// Albums pour lesquels tu as choisi la pochette fixe.
+    @Published private(set) var staticCoverAlbums: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "staticCoverAlbums") ?? [])
     /// Artistes qui ont une photo à eux (nom en minuscules → version de la photo).
     @Published private(set) var artistPhotos: [String: Int] = [:]
 
@@ -135,6 +138,25 @@ final class LibraryStore: ObservableObject {
 
     func hasClip(_ track: Track) -> Bool { clipIds.contains(track.id) }
 
+    func hasAnimatedCover(_ album: Album) -> Bool { album.tracks.contains { animatedCovers[$0.id] != nil } }
+
+    func usesStaticCover(_ album: Album) -> Bool { staticCoverAlbums.contains(album.id) }
+
+    func setStaticCover(_ isStatic: Bool, for album: Album) {
+        if isStatic { staticCoverAlbums.insert(album.id) } else { staticCoverAlbums.remove(album.id) }
+        UserDefaults.standard.set(Array(staticCoverAlbums), forKey: "staticCoverAlbums")
+    }
+
+    /// Pochette animée de l'album de ce son (sauf si tu as choisi la pochette fixe pour cet album).
+    func animatedCover(for track: Track) -> (url: URL, version: Int)? {
+        guard let api, !staticCoverAlbums.contains(track.albumKey) else { return nil }
+        // N'importe quel son de l'album convient : la vidéo est la même pour tout l'album.
+        let source: Track? = animatedCovers[track.id] != nil ? track
+            : albumsById[track.albumKey]?.tracks.first(where: { animatedCovers[$0.id] != nil })
+        guard let source, let version = animatedCovers[source.id] else { return nil }
+        return (api.animatedCoverURL(for: source, version: version), version)
+    }
+
     /// Photo de l'artiste posée sur le PC, sinon la pochette d'un de ses albums.
     func artistImageURL(_ artist: Artist) -> URL? {
         artistImageURL(name: artist.name, fallback: artist.coverTrack)
@@ -162,6 +184,8 @@ final class LibraryStore: ObservableObject {
         if credits != albumCredits { albumCredits = credits }
         let clips = Set(extras.clips ?? [])
         if clips != clipIds { clipIds = clips }
+        let animated = extras.animatedCovers ?? [:]
+        if animated != animatedCovers { animatedCovers = animated }
         if photos != artistPhotos { artistPhotos = photos }
     }
 

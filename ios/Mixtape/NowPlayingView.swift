@@ -101,7 +101,7 @@ struct NowPlayingView: View {
                     Spacer(minLength: 0)
                 } else {
                     Spacer(minLength: 0)
-                    ArtworkView(url: library.coverURL(track), cornerRadius: 14, placeholderSeed: track?.albumKey ?? "")
+                    AnimatedArtworkView(track: track, cornerRadius: 14, placeholderSeed: track?.albumKey ?? "")
                         .frame(width: side, height: side)
                         .overlay(alignment: .topLeading) {
                             if let track, library.hasClip(track) {
