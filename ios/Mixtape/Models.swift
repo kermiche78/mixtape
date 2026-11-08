@@ -22,9 +22,9 @@ struct Track: Identifiable, Codable, Hashable {
     var displayAlbum: String { album.isEmpty ? "\(title) - Single" : album }
 }
 
-/// Infos en plus envoyées par le serveur : descriptions d'albums et photos d'artistes.
+/// Infos en plus envoyées par le serveur : descriptions et crédits d'albums, photos d'artistes.
 struct LibraryExtras: Codable {
-    struct AlbumInfo: Codable { let artist: String; let album: String; let description: String }
+    struct AlbumInfo: Codable { let artist: String; let album: String; let description: String; var credits: String? }
     struct ArtistInfo: Codable { let name: String; let photoVersion: Int }
     var albums: [AlbumInfo]
     var artists: [ArtistInfo]

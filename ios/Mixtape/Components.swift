@@ -212,6 +212,7 @@ struct TrackMenu: View {
 
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var stats = Stats.shared
+    @State private var showCredits = false
 
     var body: some View {
         Menu {
@@ -249,6 +250,9 @@ struct TrackMenu: View {
             Button { player.navRequest = .artist(library.album(for: track)?.artist ?? track.artist) } label: {
                 Label("Aller à l'artiste", systemImage: "music.mic")
             }
+            if library.albumCredits[track.albumKey] != nil {
+                Button { showCredits = true } label: { Label("Crédits", systemImage: "person.2") }
+            }
             if let playlistContext {
                 Button(role: .destructive) {
                     var p = playlistContext
@@ -263,6 +267,7 @@ struct TrackMenu: View {
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
         }
+        .sheet(isPresented: $showCredits) { TrackCreditsSheet(track: track) }
     }
 }
 

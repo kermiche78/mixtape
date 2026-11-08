@@ -356,6 +356,10 @@ struct AlbumDetailView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
 
+            if let credits = library.credits(for: album) {
+                AlbumCreditsSection(album: album, credits: credits)
+            }
+
             let others = (library.artist(named: album.artist)?.albums ?? []).filter { $0.id != album.id }
             if !others.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {

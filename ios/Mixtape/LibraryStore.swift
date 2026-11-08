@@ -24,6 +24,8 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var recentlyAdded: [Album] = []
     /// Texte du fichier « description » de chaque album (clé = id de l'album).
     @Published private(set) var albumDescriptions: [String: String] = [:]
+    /// Fichier « credits » de chaque album, déjà découpé (clé = id de l'album).
+    @Published private(set) var albumCredits: [String: AlbumCredits] = [:]
     /// Artistes qui ont une photo à eux (nom en minuscules → version de la photo).
     @Published private(set) var artistPhotos: [String: Int] = [:]
 
@@ -127,6 +129,8 @@ final class LibraryStore: ObservableObject {
 
     func description(for album: Album) -> String? { albumDescriptions[album.id] }
 
+    func credits(for album: Album) -> AlbumCredits? { albumCredits[album.id] }
+
     /// Photo de l'artiste posée sur le PC, sinon la pochette d'un de ses albums.
     func artistImageURL(_ artist: Artist) -> URL? {
         artistImageURL(name: artist.name, fallback: artist.coverTrack)
@@ -145,6 +149,13 @@ final class LibraryStore: ObservableObject {
                                       uniquingKeysWith: { a, _ in a })
         let photos = Dictionary(extras.artists.map { ($0.name.lowercased(), $0.photoVersion) }, uniquingKeysWith: { a, _ in a })
         if descriptions != albumDescriptions { albumDescriptions = descriptions }
+        var credits: [String: AlbumCredits] = [:]
+        for info in extras.albums {
+            guard let text = info.credits, !text.isEmpty else { continue }
+            let parsed = AlbumCredits(text: text)
+            if !parsed.isEmpty { credits["album:\(info.album.lowercased())"] = parsed }
+        }
+        if credits != albumCredits { albumCredits = credits }
         if photos != artistPhotos { artistPhotos = photos }
     }
 
