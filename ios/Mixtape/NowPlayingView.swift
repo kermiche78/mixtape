@@ -10,6 +10,11 @@ struct NowPlayingView: View {
     @State private var showParty = false
     @State private var annotating = false
     @State private var showClip = false
+    @State private var showLyrics = false
+    @State private var editingLyrics = false
+    @AppStorage("lyricsTranslate") private var translateLyrics = true
+    @AppStorage("manageMode") private var manageMode = false
+    @ObservedObject private var lyricsStore = LyricsStore.shared
     @State private var showClipFullScreen = false
     @ObservedObject private var party = PartySession.shared
 
@@ -27,7 +32,48 @@ struct NowPlayingView: View {
 
                 PartyBanner().padding(.bottom, 8)
 
-                if showQueue {
+                // Paroles (comme sur Tidal) : bouton en haut à droite, pochette en vignette quand elles sont ouvertes.
+                HStack(alignment: .top, spacing: 10) {
+                    if showLyrics, let track {
+                        ArtworkView(url: library.coverURL(track), cornerRadius: 6, placeholderSeed: track.albumKey)
+                            .frame(width: 64, height: 64)
+                            .shadow(color: .black.opacity(0.35), radius: 10, y: 5)
+                            .transition(.scale(scale: 0.4, anchor: .topLeading).combined(with: .opacity))
+                    }
+                    Spacer(minLength: 0)
+                    if showLyrics, let track, let lyrics = lyricsStore.lyrics(for: track.id) {
+                        if manageMode {
+                            Button { editingLyrics = true } label: {
+                                Image(systemName: "pencil")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 36, height: 36)
+                                    .background(.white.opacity(0.12), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Modifier les paroles")
+                            .sheet(isPresented: $editingLyrics) { LyricsEditorSheet(track: track) }
+                        }
+                        if lyrics.hasTranslation {
+                            LyricsPill(title: "FR", on: translateLyrics) { translateLyrics.toggle() }
+                                .accessibilityLabel("Traduction en français")
+                        }
+                    }
+                    LyricsPill(title: "Paroles", on: showLyrics,
+                               dimmed: track.map { lyricsStore.isMissing($0.id) } ?? true) {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            showLyrics.toggle()
+                            if showLyrics { showQueue = false }
+                        }
+                    }
+                }
+                .padding(.bottom, showLyrics ? 4 : 10)
+
+                if showLyrics, let track {
+                    LyricsPanel(track: track)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
+                } else if showQueue {
                     QueuePanel()
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 } else if let track, showClip, library.hasClip(track), let clipURL = library.api?.clipURL(for: track) {
@@ -150,6 +196,7 @@ struct NowPlayingView: View {
                 }
                 .padding(.vertical, 12)
 
+                if !showLyrics {
                 VolumeSlider()
                     .frame(height: 34)
 
@@ -177,6 +224,7 @@ struct NowPlayingView: View {
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 6)
+                }
             }
             .padding(.horizontal, 28)
             .frame(width: geo.size.width, height: geo.size.height)
@@ -189,6 +237,9 @@ struct NowPlayingView: View {
         .onChange(of: player.current == nil) { _, isEmpty in if isEmpty { dismiss() } }
         .sheet(isPresented: $showParty) { PartySheet() }
         .fullScreenCover(isPresented: $showClipFullScreen) { ClipFullScreen() }
+        .task(id: track?.id) {
+            if let track { await lyricsStore.load(track, api: library.api) }
+        }
     }
 
     /// Petite pastille « Clip » / « Pochette » posée sur la pochette.

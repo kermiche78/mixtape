@@ -375,6 +375,7 @@ struct SettingsView: View {
     @AppStorage("autoplay") private var autoplay = true
     @AppStorage("standbyEnabled") private var standbyEnabled = true
     @AppStorage("showAnnotations") private var showAnnotations = true
+    @AppStorage("manageMode") private var manageModeOn = false
     @ObservedObject private var backup = BackupManager.shared
     @State private var confirmRestore = false
     @State private var showListenTogether = false
@@ -468,6 +469,13 @@ struct SettingsView: View {
             }
             Section {
                 ManageModeToggle()
+                if manageModeOn {
+                    NavigationLink {
+                        LyricsEngineView()
+                    } label: {
+                        Label("Paroles IA", systemImage: "quote.bubble")
+                    }
+                }
             } header: {
                 Text("Gestion")
             } footer: {

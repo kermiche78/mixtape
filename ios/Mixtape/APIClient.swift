@@ -191,6 +191,33 @@ struct APIClient {
                                       body: jsonBody(["trackId": trackId, "name": name]), contentType: "application/json"))
     }
 
+    // MARK: Paroles (IA du PC)
+
+    func lyrics(trackId: String) async throws -> Lyrics {
+        try JSONDecoder().decode(Lyrics.self, from: try checked(try await raw("api/lyrics/\(trackId)")))
+    }
+
+    func saveLyrics(trackId: String, lines: [LyricLine]) async throws -> Lyrics {
+        let body = try JSONEncoder().encode(["lines": lines])
+        let data = try checked(try await raw("api/lyrics/\(trackId)", method: "PUT", body: body, contentType: "application/json"))
+        return try JSONDecoder().decode(Lyrics.self, from: data)
+    }
+
+    func lyricsPriority(trackIds: [String]) async throws {
+        _ = try checked(try await raw("api/lyrics-engine/priority", method: "POST",
+                                      body: jsonBody(["trackIds": trackIds]), contentType: "application/json"))
+    }
+
+    func lyricsEngine() async throws -> LyricsEngineStatus {
+        try JSONDecoder().decode(LyricsEngineStatus.self, from: try checked(try await raw("api/lyrics-engine")))
+    }
+
+    func setLyricsEngine(_ settings: LyricsEngineStatus.Settings) async throws -> LyricsEngineStatus {
+        let body = try JSONEncoder().encode(settings)
+        let data = try checked(try await raw("api/lyrics-engine", method: "PUT", body: body, contentType: "application/json"))
+        return try JSONDecoder().decode(LyricsEngineStatus.self, from: data)
+    }
+
     // MARK: Annotations « pour tout le monde »
 
     func annotations() async throws -> [Annotation] {

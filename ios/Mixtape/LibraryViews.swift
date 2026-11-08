@@ -219,6 +219,13 @@ struct AlbumDetailView: View {
                         } label: {
                             Label(album.isSingle ? "Partager le single" : "Partager l'album", systemImage: "square.and.arrow.up")
                         }
+                        if manageMode {
+                            Button {
+                                Task { try? await library.api?.lyricsPriority(trackIds: album.tracks.map(\.id)) }
+                            } label: {
+                                Label("Générer les paroles en priorité", systemImage: "quote.bubble")
+                            }
+                        }
                     } label: { Image(systemName: "ellipsis") }
                 }
             }
