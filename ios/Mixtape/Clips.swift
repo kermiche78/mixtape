@@ -5,30 +5,56 @@ import UIKit
 // MARK: - Clips vidéo
 
 /// Vidéo muette calée sur le son en cours (le son vient toujours du lecteur).
+/// Un seul lecteur vidéo pour tout l'app : passer en plein écran réutilise la vidéo déjà chargée,
+/// sans écran noir ni nouveau téléchargement.
 @MainActor
 final class ClipVideo: ObservableObject {
+    static let shared = ClipVideo()
+
     let player = AVPlayer()
     private var url: URL?
     private var lastSeek = Date.distantPast
+    private var users = 0
 
     init() {
         player.isMuted = true
         player.preventsDisplaySleepDuringVideoPlayback = true
+        player.automaticallyWaitsToMinimizeStalling = false
+    }
+
+    func attach(_ newURL: URL, at time: Double, playing: Bool) {
+        users += 1
+        load(newURL, at: time, playing: playing)
+    }
+
+    /// Un affichage du clip disparaît : on ne coupe la vidéo que si plus personne ne l'affiche.
+    func detach() {
+        users = max(users - 1, 0)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if self.users == 0 { self.stop() }
+        }
     }
 
     func load(_ newURL: URL, at time: Double, playing: Bool) {
-        guard newURL != url else { return }
+        guard newURL != url else {
+            follow(time: time, playing: playing, force: true)
+            return
+        }
         url = newURL
         player.replaceCurrentItem(with: AVPlayerItem(url: newURL))
         seek(time)
         if playing { player.play() }
     }
 
-    /// Recale la vidéo sur le son (sans la secouer à chaque fois).
-    func follow(time: Double, playing: Bool) {
+    /// Recale la vidéo sur le son. Un saut (avancer, reculer) est suivi tout de suite.
+    func follow(time: Double, playing: Bool, force: Bool = false) {
         let current = player.currentTime().seconds
-        if current.isFinite, abs(current - time) > 0.8, Date().timeIntervalSince(lastSeek) > 1.5 {
-            seek(time)
+        if current.isFinite {
+            let gap = abs(current - time)
+            if gap > 2.5 || force && gap > 0.3 || (gap > 0.8 && Date().timeIntervalSince(lastSeek) > 1.5) {
+                seek(time)
+            }
         }
         if playing, player.rate == 0 {
             player.play()
@@ -75,19 +101,16 @@ struct VideoLayerView: UIViewRepresentable {
 struct ClipPlayerView: View {
     @EnvironmentObject private var player: PlayerModel
     @ObservedObject var clock: PlaybackClock
-    @StateObject private var video = ClipVideo()
+    @ObservedObject private var video = ClipVideo.shared
     let url: URL
 
     var body: some View {
         VideoLayerView(player: video.player)
-            .onAppear { video.load(url, at: clock.currentTime, playing: player.isPlaying) }
-            .onChange(of: url) { _, newURL in
-                video.stop()
-                video.load(newURL, at: clock.currentTime, playing: player.isPlaying)
-            }
+            .onAppear { video.attach(url, at: clock.currentTime, playing: player.isPlaying) }
+            .onChange(of: url) { _, newURL in video.load(newURL, at: clock.currentTime, playing: player.isPlaying) }
             .onChange(of: clock.currentTime) { _, t in video.follow(time: t, playing: player.isPlaying) }
             .onChange(of: player.isPlaying) { _, playing in video.follow(time: clock.currentTime, playing: playing) }
-            .onDisappear { video.stop() }
+            .onDisappear { video.detach() }
     }
 }
 
@@ -118,25 +141,71 @@ struct ClipFullScreen: View {
             .accessibilityLabel("Fermer le clip")
         }
         .overlay(alignment: .bottom) {
-            HStack(spacing: 30) {
-                Button { player.previous() } label: { Image(systemName: "backward.fill") }
-                Button { player.togglePlayPause() } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .contentTransition(.symbolEffect(.replace))
+            VStack(spacing: 10) {
+                ClipScrubber(clock: player.clock)
+                HStack(spacing: 26) {
+                    Button { player.previous() } label: { Image(systemName: "backward.fill") }
+                        .accessibilityLabel("Son précédent")
+                    Button { jump(-10) } label: { Image(systemName: "gobackward.10") }
+                        .accessibilityLabel("Reculer de 10 secondes")
+                    Button { player.togglePlayPause() } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    Button { jump(10) } label: { Image(systemName: "goforward.10") }
+                        .accessibilityLabel("Avancer de 10 secondes")
+                    Button { player.next() } label: { Image(systemName: "forward.fill") }
+                        .accessibilityLabel("Son suivant")
                 }
-                Button { player.next() } label: { Image(systemName: "forward.fill") }
+                .font(.title2)
             }
-            .font(.title2)
             .foregroundStyle(.white)
             .padding(.horizontal, 22)
             .padding(.vertical, 12)
-            .liquidGlass(in: Capsule())
-            .padding(.bottom, 20)
+            .frame(maxWidth: 560)
+            .liquidGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .padding(.bottom, 16)
+            .padding(.horizontal, 30)
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         .onAppear { AppDelegate.lock(.landscape) }
         .onDisappear { AppDelegate.lock(.portrait) }
+    }
+
+    private func jump(_ seconds: Double) {
+        let target = min(max(player.clock.currentTime + seconds, 0), max(player.duration - 1, 0))
+        player.seek(to: target)
+    }
+}
+
+/// Barre de lecture du clip en plein écran : on fait glisser pour avancer ou reculer.
+struct ClipScrubber: View {
+    @EnvironmentObject private var player: PlayerModel
+    @ObservedObject var clock: PlaybackClock
+    @State private var dragging: Double?
+
+    var body: some View {
+        let duration = max(player.duration, 1)
+        let shown = dragging ?? min(clock.currentTime, duration)
+        HStack(spacing: 10) {
+            Text(Self.format(shown)).monospacedDigit()
+            Slider(value: Binding(get: { shown }, set: { dragging = $0 }), in: 0...duration) { editing in
+                if !editing, let target = dragging {
+                    player.seek(to: target)
+                    dragging = nil
+                }
+            }
+            .tint(.white)
+            Text("-" + Self.format(max(duration - shown, 0))).monospacedDigit()
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.white.opacity(0.85))
+    }
+
+    static func format(_ t: Double) -> String {
+        let s = Int(t.rounded(.down))
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 }
 
