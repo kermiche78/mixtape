@@ -75,42 +75,71 @@ final class ClipVideo: ObservableObject {
     }
 }
 
-/// Affichage de la vidéo, sans les commandes d'iOS.
+/// Affichage de la vidéo, sans les commandes d'iOS. Prévient quand la première image est prête.
 struct VideoLayerView: UIViewRepresentable {
     let player: AVPlayer
+    var onReady: ((Bool) -> Void)? = nil
 
     final class LayerView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
         var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+        var observation: NSKeyValueObservation?
     }
 
     func makeUIView(context: Context) -> LayerView {
         let view = LayerView()
-        view.backgroundColor = .black
+        view.backgroundColor = .clear
         view.playerLayer.videoGravity = .resizeAspect
         view.playerLayer.player = player
+        let onReady = onReady
+        view.observation = view.playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { layer, _ in
+            let ready = layer.isReadyForDisplay
+            DispatchQueue.main.async { onReady?(ready) }
+        }
         return view
     }
 
     func updateUIView(_ view: LayerView, context: Context) {
         if view.playerLayer.player !== player { view.playerLayer.player = player }
     }
+
+    static func dismantleUIView(_ view: LayerView, coordinator: ()) {
+        view.observation?.invalidate()
+        view.observation = nil
+    }
 }
 
-/// Clip calé sur le son en cours.
+/// Clip calé sur le son en cours. Tant que la vidéo charge, la pochette reste affichée (plus d'écran noir).
 struct ClipPlayerView: View {
     @EnvironmentObject private var player: PlayerModel
     @ObservedObject var clock: PlaybackClock
     @ObservedObject private var video = ClipVideo.shared
+    @State private var ready = false
     let url: URL
+    var cover: URL? = nil
 
     var body: some View {
-        VideoLayerView(player: video.player)
-            .onAppear { video.attach(url, at: clock.currentTime, playing: player.isPlaying) }
-            .onChange(of: url) { _, newURL in video.load(newURL, at: clock.currentTime, playing: player.isPlaying) }
-            .onChange(of: clock.currentTime) { _, t in video.follow(time: t, playing: player.isPlaying) }
-            .onChange(of: player.isPlaying) { _, playing in video.follow(time: clock.currentTime, playing: playing) }
-            .onDisappear { video.detach() }
+        ZStack {
+            Color.black
+            if !ready {
+                ArtworkView(url: cover, cornerRadius: 0)
+                    .overlay(Color.black.opacity(0.35))
+                    .overlay(ProgressView().tint(.white).controlSize(.large))
+                    .transition(.opacity)
+            }
+            VideoLayerView(player: video.player) { isReady in
+                withAnimation(.easeIn(duration: 0.25)) { ready = isReady }
+            }
+            .opacity(ready ? 1 : 0)
+        }
+        .onAppear { video.attach(url, at: clock.currentTime, playing: player.isPlaying) }
+        .onChange(of: url) { _, newURL in
+            ready = false
+            video.load(newURL, at: clock.currentTime, playing: player.isPlaying)
+        }
+        .onChange(of: clock.currentTime) { _, t in video.follow(time: t, playing: player.isPlaying) }
+        .onChange(of: player.isPlaying) { _, playing in video.follow(time: clock.currentTime, playing: playing) }
+        .onDisappear { video.detach() }
     }
 }
 
@@ -119,16 +148,21 @@ struct ClipFullScreen: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
     @Environment(\.dismiss) private var dismiss
+    @State private var controlsVisible = true
+    @State private var hideTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             if let track = player.current, library.hasClip(track), let url = library.api?.clipURL(for: track) {
-                ClipPlayerView(clock: player.clock, url: url).ignoresSafeArea()
+                ClipPlayerView(clock: player.clock, url: url, cover: library.coverURL(track)).ignoresSafeArea()
             } else {
                 Text("Pas de clip pour ce son").foregroundStyle(.white.opacity(0.7))
             }
         }
+        // Un toucher sur la vidéo cache ou affiche les commandes.
+        .contentShape(Rectangle())
+        .onTapGesture { setControls(!controlsVisible) }
         .overlay(alignment: .topLeading) {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
@@ -139,6 +173,8 @@ struct ClipFullScreen: View {
             }
             .padding(20)
             .accessibilityLabel("Fermer le clip")
+            .opacity(controlsVisible ? 1 : 0)
+            .allowsHitTesting(controlsVisible)
         }
         .overlay(alignment: .bottom) {
             VStack(spacing: 10) {
@@ -146,13 +182,13 @@ struct ClipFullScreen: View {
                 HStack(spacing: 26) {
                     Button { player.previous() } label: { Image(systemName: "backward.fill") }
                         .accessibilityLabel("Son précédent")
-                    Button { jump(-10) } label: { Image(systemName: "gobackward.10") }
+                    Button { jump(-10); scheduleHide() } label: { Image(systemName: "gobackward.10") }
                         .accessibilityLabel("Reculer de 10 secondes")
                     Button { player.togglePlayPause() } label: {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                             .contentTransition(.symbolEffect(.replace))
                     }
-                    Button { jump(10) } label: { Image(systemName: "goforward.10") }
+                    Button { jump(10); scheduleHide() } label: { Image(systemName: "goforward.10") }
                         .accessibilityLabel("Avancer de 10 secondes")
                     Button { player.next() } label: { Image(systemName: "forward.fill") }
                         .accessibilityLabel("Son suivant")
@@ -166,11 +202,30 @@ struct ClipFullScreen: View {
             .liquidGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             .padding(.bottom, 16)
             .padding(.horizontal, 30)
+            .opacity(controlsVisible ? 1 : 0)
+            .offset(y: controlsVisible ? 0 : 30)
+            .allowsHitTesting(controlsVisible)
+            .simultaneousGesture(TapGesture().onEnded { scheduleHide() })
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
-        .onAppear { AppDelegate.lock(.landscape) }
-        .onDisappear { AppDelegate.lock(.portrait) }
+        .onAppear { AppDelegate.lock(.landscape); scheduleHide() }
+        .onDisappear { AppDelegate.lock(.portrait); hideTask?.cancel() }
+    }
+
+    private func setControls(_ visible: Bool) {
+        withAnimation(.easeInOut(duration: 0.25)) { controlsVisible = visible }
+        if visible { scheduleHide() } else { hideTask?.cancel() }
+    }
+
+    /// Les commandes disparaissent toutes seules après 4 secondes sans toucher (pendant la lecture).
+    private func scheduleHide() {
+        hideTask?.cancel()
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled, player.isPlaying else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { controlsVisible = false }
+        }
     }
 
     private func jump(_ seconds: Double) {

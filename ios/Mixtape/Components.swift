@@ -239,6 +239,9 @@ struct TrackMenu: View {
             Button { ShareManager.shared.share(track, api: library.api) } label: {
                 Label("Partager le son", systemImage: "square.and.arrow.up")
             }
+            Button { ShareManager.shared.shareListenLink(track, api: library.api) } label: {
+                Label("Lien d'écoute (24 h)", systemImage: "link")
+            }
             Button { showStory = true } label: {
                 Label("Carte pour story", systemImage: "rectangle.portrait.on.rectangle.portrait")
             }

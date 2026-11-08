@@ -79,7 +79,7 @@ struct NowPlayingView: View {
                 } else if let track, showClip, library.hasClip(track), let clipURL = library.api?.clipURL(for: track) {
                     Spacer(minLength: 0)
                     // Clip vidéo à la place de la pochette (le son continue de venir du lecteur).
-                    ClipPlayerView(clock: player.clock, url: clipURL)
+                    ClipPlayerView(clock: player.clock, url: clipURL, cover: library.coverURL(track))
                         .frame(width: side, height: side * 9 / 16)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                         .overlay(alignment: .topLeading) { clipChip("Pochette", icon: "photo") { showClip = false } }

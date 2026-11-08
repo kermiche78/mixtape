@@ -27,6 +27,21 @@ final class ShareManager: ObservableObject {
         }
     }
 
+    /// Envoie un lien d'écoute (valable 24 h) : ton pote écoute le son dans Safari, sans rien installer.
+    func shareListenLink(_ track: Track, api: APIClient?) {
+        guard preparing == nil, let api else { return }
+        preparing = track.title
+        Task {
+            let url = try? await api.listenLink(trackId: track.id)
+            preparing = nil
+            if let url {
+                presentItems(["\(track.title) · \(track.artist) — écoute-le ici (lien valable 24 h) :", url])
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+        }
+    }
+
     /// Partage un album entier : tous ses sons + la pochette, dans un seul fichier .zip.
     func shareAlbum(_ album: Album, api: APIClient?, coverURL: URL?) {
         guard preparing == nil, !album.tracks.isEmpty else { return }
@@ -111,13 +126,15 @@ final class ShareManager: ObservableObject {
         }
     }
 
-    private func present(_ file: URL) {
+    private func present(_ file: URL) { presentItems([file]) }
+
+    private func presentItems(_ items: [Any]) {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
         guard let root = scene?.keyWindow?.rootViewController ?? scene?.windows.first?.rootViewController else { return }
         var top = root
         while let presented = top.presentedViewController { top = presented }
-        let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+        let sheet = UIActivityViewController(activityItems: items, applicationActivities: nil)
         sheet.popoverPresentationController?.sourceView = top.view
         top.present(sheet, animated: true)
     }

@@ -203,6 +203,15 @@ struct APIClient {
         return try JSONDecoder().decode(Lyrics.self, from: data)
     }
 
+    /// Lien d'écoute d'un son, valable 24 h, à envoyer à un pote (il l'ouvre dans Safari).
+    func listenLink(trackId: String) async throws -> URL {
+        let data = try checked(try await raw("api/listen-link", method: "POST",
+                                             body: jsonBody(["trackId": trackId]), contentType: "application/json"))
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let text = obj["url"] as? String, let url = URL(string: text) else { throw APIError.server(500) }
+        return url
+    }
+
     func lyricsPriority(trackIds: [String]) async throws {
         _ = try checked(try await raw("api/lyrics-engine/priority", method: "POST",
                                       body: jsonBody(["trackIds": trackIds]), contentType: "application/json"))
