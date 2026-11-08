@@ -175,6 +175,7 @@ struct AlbumDetailView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     header(album)
+                    AlbumDownloadCard(tracks: album.tracks)
                     resumeCard(album)
                     tracks(album)
                     footer(album)
@@ -211,8 +212,9 @@ struct AlbumDetailView: View {
                             Label("Lire en dernier", systemImage: "text.line.last.and.arrowtriangle.forward")
                         }
                         Divider()
-                        Button { album.tracks.forEach { if !stats.isFavorite($0) { stats.toggleFavorite($0) } } } label: {
-                            Label("Tout ajouter aux favoris", systemImage: "heart")
+                        let fav = stats.isFavorite(album: album.tracks)
+                        Button { stats.setFavorite(album.tracks, !fav) } label: {
+                            Label(fav ? "Retirer l'album des favoris" : "Mettre l'album en favori", systemImage: fav ? "heart.slash" : "heart")
                         }
                         Button {
                             ShareManager.shared.shareAlbum(album, api: library.api, coverURL: library.coverURL(album.coverTrack))
@@ -283,8 +285,20 @@ struct AlbumDetailView: View {
                         .background(.white, in: Capsule())
                 }
                 .buttonStyle(.plain)
-                circleButton("plus") { album.tracks.forEach { player.addToQueue($0) } }
-                    .accessibilityLabel("Ajouter à la file d'attente")
+                let fav = stats.isFavorite(album: album.tracks)
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { stats.setFavorite(album.tracks, !fav) }
+                } label: {
+                    Image(systemName: fav ? "heart.fill" : "heart")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(fav ? Color.accentPink : .primary)
+                        .symbolEffect(.bounce, value: fav)
+                        .frame(width: 50, height: 50)
+                        .liquidGlass(in: Circle(), interactive: true)
+                }
+                .buttonStyle(.plain)
+                .sensoryFeedback(.success, trigger: fav)
+                .accessibilityLabel(fav ? "Retirer l'album des favoris" : "Mettre l'album en favori")
             }
             .padding(.horizontal, 44)
             .padding(.top, 20)
@@ -358,6 +372,7 @@ struct AlbumDetailView: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { player.play(album.tracks, startAt: i) }
+                .swipeToPlayNext(track)
                 Divider().padding(.leading, 54).padding(.trailing, 20)
             }
         }
@@ -497,6 +512,7 @@ struct ArtistDetailView: View {
                                     .padding(.vertical, 5)
                                     .contentShape(Rectangle())
                                     .onTapGesture { player.play(topSongs, startAt: i) }
+                                    .swipeToPlayNext(track)
                                 }
                             }
                         }

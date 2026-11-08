@@ -34,6 +34,18 @@ final class Stats: ObservableObject {
         UserDefaults.standard.set(Array(favorites), forKey: "favorites")
     }
 
+    /// Un album est en favori quand tous ses sons le sont.
+    func isFavorite(album tracks: [Track]) -> Bool {
+        !tracks.isEmpty && tracks.allSatisfy { favorites.contains($0.id) }
+    }
+
+    /// Met (ou retire) tout l'album en favori d'un coup.
+    func setFavorite(_ tracks: [Track], _ on: Bool) {
+        let ids = tracks.map(\.id)
+        if on { favorites.formUnion(ids) } else { favorites.subtract(ids) }
+        UserDefaults.standard.set(Array(favorites), forKey: "favorites")
+    }
+
     func countPlay(_ track: Track) {
         playCounts[track.id, default: 0] += 1
         UserDefaults.standard.set(playCounts, forKey: "playCounts")

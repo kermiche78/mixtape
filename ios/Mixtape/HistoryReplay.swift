@@ -254,6 +254,7 @@ struct ReplayView: View {
                                 .padding(.vertical, 4)
                                 .contentShape(Rectangle())
                                 .onTapGesture { player.play(top, startAt: i) }
+                                .swipeToPlayNext(item.track)
                             }
                         }
                         .padding(.horizontal, 20)

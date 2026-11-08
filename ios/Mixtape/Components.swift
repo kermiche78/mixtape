@@ -415,3 +415,60 @@ struct EmptyLibraryView: View {
         }
     }
 }
+
+// MARK: - Balayer vers la droite = « Lire ensuite »
+
+/// Pour les listes qui ne sont pas des `List` (page album, artiste, téléchargements…) :
+/// on glisse le son vers la droite, une pastille rose apparaît, et en lâchant il passe en prochain titre.
+struct SwipeToPlayNext: ViewModifier {
+    @EnvironmentObject private var player: PlayerModel
+    let track: Track
+    @State private var offset: CGFloat = 0
+    @State private var horizontal: Bool? = nil
+    @State private var done = 0
+    private let threshold: CGFloat = 80
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: offset)
+            .background(alignment: .leading) {
+                if offset > 0 {
+                    HStack(spacing: 6) {
+                        Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                        if offset > threshold { Text("Lire ensuite").font(.subheadline.weight(.semibold)) }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(maxHeight: .infinity)
+                    .frame(width: max(offset, 0), alignment: .leading)
+                    .background(Color.accentPink.opacity(offset > threshold ? 1 : 0.6))
+                    .clipped()
+                }
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 15)
+                    .onChanged { g in
+                        // On décide une fois pour toutes : glissement horizontal, ou défilement normal.
+                        if horizontal == nil {
+                            horizontal = abs(g.translation.width) > abs(g.translation.height) * 1.5 && g.translation.width > 0
+                        }
+                        guard horizontal == true else { return }
+                        let x = max(0, g.translation.width)
+                        offset = x > threshold ? threshold + (x - threshold) * 0.3 : x
+                    }
+                    .onEnded { _ in
+                        if horizontal == true, offset > threshold {
+                            player.playNext(track)
+                            done += 1
+                        }
+                        horizontal = nil
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { offset = 0 }
+                    }
+            )
+            .sensoryFeedback(.success, trigger: done)
+    }
+}
+
+extension View {
+    func swipeToPlayNext(_ track: Track) -> some View { modifier(SwipeToPlayNext(track: track)) }
+}
