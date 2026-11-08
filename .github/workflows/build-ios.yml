@@ -61,10 +61,22 @@ jobs:
             echo "Secrets MIXTAPE_URL / MIXTAPE_UPLOAD_KEY absents : envoi au PC ignore."
             exit 0
           fi
-          curl -fsS --retry 3 --retry-delay 10 --max-time 180 -X POST \
-            -H "X-Mixtape-Key: $MIXTAPE_UPLOAD_KEY" -H "X-Mixtape-Build: ${{ github.run_number }}" \
-            -H "Content-Type: application/octet-stream" --data-binary @ios/Mixtape.ipa \
-            "$MIXTAPE_URL/app/upload"
+          URL="${MIXTAPE_URL%/}"
+          URL="$(printf '%s' "$URL" | tr -d '[:space:]')"
+          {
+            echo "### Envoi de l'app sur le PC"
+            echo "- Test de l'adresse : $(curl -sS -o /dev/null -m 30 -w '%{http_code}' "$URL/app" 2>&1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for i in 1 2 3; do
+            code=$(curl -sS -o /tmp/reponse.txt -m 180 -w '%{http_code}' -X POST \
+              -H "X-Mixtape-Key: $MIXTAPE_UPLOAD_KEY" -H "X-Mixtape-Build: ${{ github.run_number }}" \
+              -H "Content-Type: application/octet-stream" --data-binary @ios/Mixtape.ipa \
+              "$URL/app/upload" 2>/tmp/erreur.txt) || true
+            echo "- Essai $i : code $code $(head -c 200 /tmp/erreur.txt) $(head -c 200 /tmp/reponse.txt)" >> "$GITHUB_STEP_SUMMARY"
+            [ "$code" = "200" ] && exit 0
+            sleep 15
+          done
+          exit 1
 
       - uses: actions/upload-artifact@v4
         with:
