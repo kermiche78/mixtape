@@ -112,7 +112,7 @@ final class BackupManager: ObservableObject {
 
     /// Tout ce qui est gardé sur l'iPhone et mérite d'être sauvegardé.
     private let keys = [
-        "favorites", "playCounts", "playHistory", "recentlyPlayed", "albumProgress", "listeningByDay",
+        "favorites", "favoriteAlbums", "playCounts", "playHistory", "recentlyPlayed", "albumProgress", "listeningByDay",
         "reelsPenalties", "recentSearches", "lastSession", "autoplay", "standbyEnabled", "accentColor",
         "albumSort", "songSort", "albumFilter", "songFilter", "annotations", "showAnnotations", "partyHostName", "partyMode",
         "alarmEnabled", "alarmHour", "alarmMinute", "alarmRepeat", "alarmSource", "alarmTrackId",
@@ -124,6 +124,7 @@ final class BackupManager: ObservableObject {
     private var isLocalEmpty: Bool {
         let d = UserDefaults.standard
         return (d.stringArray(forKey: "favorites") ?? []).isEmpty
+            && (d.stringArray(forKey: "favoriteAlbums") ?? []).isEmpty
             && (d.dictionary(forKey: "playCounts") ?? [:]).isEmpty
             && d.data(forKey: "playHistory") == nil
     }

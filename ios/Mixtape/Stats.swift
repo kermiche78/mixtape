@@ -7,6 +7,8 @@ final class Stats: ObservableObject {
     static let shared = Stats()
 
     @Published private(set) var favorites: Set<String>
+    /// Albums mis en favori (avec le cœur de la page album), séparés des sons favoris.
+    @Published private(set) var favoriteAlbums: Set<String>
     @Published private(set) var playCounts: [String: Int]
     /// Historique des écoutes, du plus récent au plus ancien.
     @Published private(set) var history: [PlayEvent]
@@ -18,6 +20,7 @@ final class Stats: ObservableObject {
 
     private init() {
         favorites = Set(UserDefaults.standard.stringArray(forKey: "favorites") ?? [])
+        favoriteAlbums = Set(UserDefaults.standard.stringArray(forKey: "favoriteAlbums") ?? [])
         playCounts = UserDefaults.standard.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         if let data = UserDefaults.standard.data(forKey: "playHistory"),
            let saved = try? JSONDecoder().decode([PlayEvent].self, from: data) {
@@ -34,16 +37,12 @@ final class Stats: ObservableObject {
         UserDefaults.standard.set(Array(favorites), forKey: "favorites")
     }
 
-    /// Un album est en favori quand tous ses sons le sont.
-    func isFavorite(album tracks: [Track]) -> Bool {
-        !tracks.isEmpty && tracks.allSatisfy { favorites.contains($0.id) }
-    }
+    func isFavorite(_ album: Album) -> Bool { favoriteAlbums.contains(album.id) }
 
-    /// Met (ou retire) tout l'album en favori d'un coup.
-    func setFavorite(_ tracks: [Track], _ on: Bool) {
-        let ids = tracks.map(\.id)
-        if on { favorites.formUnion(ids) } else { favorites.subtract(ids) }
-        UserDefaults.standard.set(Array(favorites), forKey: "favorites")
+    /// Met l'album lui-même en favori (ses sons ne changent pas).
+    func toggleFavorite(_ album: Album) {
+        if favoriteAlbums.contains(album.id) { favoriteAlbums.remove(album.id) } else { favoriteAlbums.insert(album.id) }
+        UserDefaults.standard.set(Array(favoriteAlbums), forKey: "favoriteAlbums")
     }
 
     func countPlay(_ track: Track) {
@@ -84,6 +83,7 @@ final class Stats: ObservableObject {
     func reload() {
         let d = UserDefaults.standard
         favorites = Set(d.stringArray(forKey: "favorites") ?? [])
+        favoriteAlbums = Set(d.stringArray(forKey: "favoriteAlbums") ?? [])
         playCounts = d.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         if let data = d.data(forKey: "playHistory"), let saved = try? JSONDecoder().decode([PlayEvent].self, from: data) {
             history = saved

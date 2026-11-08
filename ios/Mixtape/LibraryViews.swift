@@ -8,6 +8,7 @@ extension View {
             .navigationDestination(for: LibrarySection.self) { section in
                 switch section {
                 case .favorites: FavoritesView()
+                case .favoriteAlbums: FavoriteAlbumsView()
                 case .playlists: PlaylistsView()
                 case .artists: ArtistsView()
                 case .albums: AlbumsView()
@@ -158,6 +159,36 @@ struct AlbumsView: View {
     }
 }
 
+/// « Albums favoris » : les albums mis en favori avec le cœur, rangés par artiste.
+struct FavoriteAlbumsView: View {
+    @EnvironmentObject private var library: LibraryStore
+    @ObservedObject private var stats = Stats.shared
+    private let columns = [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
+
+    var body: some View {
+        let albums = library.albums.filter { stats.isFavorite($0) }
+            .sorted { $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending }
+        ScrollView {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                ForEach(albums) { album in
+                    NavigationLink(value: album) { AlbumCell(album: album) }.buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+        }
+        .overlay {
+            if albums.isEmpty {
+                ContentUnavailableView {
+                    Label("Aucun album favori", systemImage: "heart.square")
+                } description: {
+                    Text("Touche le cœur à côté de « Lire » sur la page d'un album pour le ranger ici.")
+                }
+            }
+        }
+        .navigationTitle("Albums favoris")
+    }
+}
+
 struct AlbumDetailView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
@@ -212,9 +243,12 @@ struct AlbumDetailView: View {
                             Label("Lire en dernier", systemImage: "text.line.last.and.arrowtriangle.forward")
                         }
                         Divider()
-                        let fav = stats.isFavorite(album: album.tracks)
-                        Button { stats.setFavorite(album.tracks, !fav) } label: {
+                        let fav = stats.isFavorite(album)
+                        Button { stats.toggleFavorite(album) } label: {
                             Label(fav ? "Retirer l'album des favoris" : "Mettre l'album en favori", systemImage: fav ? "heart.slash" : "heart")
+                        }
+                        Button { album.tracks.forEach { if !stats.isFavorite($0) { stats.toggleFavorite($0) } } } label: {
+                            Label("Ajouter tous les sons aux favoris", systemImage: "heart.text.square")
                         }
                         Button {
                             ShareManager.shared.shareAlbum(album, api: library.api, coverURL: library.coverURL(album.coverTrack))
@@ -285,9 +319,9 @@ struct AlbumDetailView: View {
                         .background(.white, in: Capsule())
                 }
                 .buttonStyle(.plain)
-                let fav = stats.isFavorite(album: album.tracks)
+                let fav = stats.isFavorite(album)
                 Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { stats.setFavorite(album.tracks, !fav) }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { stats.toggleFavorite(album) }
                 } label: {
                     Image(systemName: fav ? "heart.fill" : "heart")
                         .font(.title3.weight(.semibold))
