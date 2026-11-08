@@ -303,6 +303,7 @@ struct LyricsEngineStatus: Decodable {
         var autoNew: Bool
         var model: String
         var voice: Bool
+        var power: String?
     }
     struct Current: Decodable { let id: String; let title: String; let artist: String }
     var settings: Settings
@@ -395,6 +396,20 @@ struct LyricsEngineView: View {
                 }
 
                 Section {
+                    Picker("Puissance", selection: Binding(get: { settings?.power ?? "balanced" },
+                                                           set: { settings?.power = $0; push() })) {
+                        Text("Économe").tag("eco")
+                        Text("Équilibrée").tag("balanced")
+                        Text("Maximale").tag("max")
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Puissance du PC utilisée")
+                } footer: {
+                    Text(powerText)
+                }
+
+                Section {
                     Toggle("Nouveaux sons automatiquement", isOn: binding(\.autoNew)).tint(Color.accentPink)
                     Toggle("Isoler la voix du beat", isOn: binding(\.voice)).tint(Color.accentPink)
                     Picker("Qualité", selection: binding(\.model)) {
@@ -419,6 +434,14 @@ struct LyricsEngineView: View {
                 await refresh()
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
+        }
+    }
+
+    private var powerText: String {
+        switch settings?.power ?? "balanced" {
+        case "eco": return "Un quart du processeur : le PC reste très fluide, mais l'IA va environ 2 fois moins vite. Idéal en journée."
+        case "max": return "Presque tout le processeur : l'IA va le plus vite possible, mais le PC peut ramer. Idéal la nuit."
+        default: return "La moitié du processeur : bon équilibre entre vitesse de l'IA et fluidité du PC et de la musique."
         }
     }
 
