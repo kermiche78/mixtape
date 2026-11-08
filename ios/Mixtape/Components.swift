@@ -214,6 +214,7 @@ struct TrackMenu: View {
     @ObservedObject private var stats = Stats.shared
     @State private var showCredits = false
     @State private var showEditor = false
+    @State private var showAnnotations = false
     @AppStorage("manageMode") private var manageMode = false
 
     var body: some View {
@@ -255,6 +256,10 @@ struct TrackMenu: View {
             if library.albumCredits[track.albumKey] != nil {
                 Button { showCredits = true } label: { Label("Crédits", systemImage: "person.2") }
             }
+            Button { showAnnotations = true } label: {
+                let n = AnnotationStore.shared.count(for: track.id)
+                Label(n > 0 ? "Annotations (\(n))" : "Annotations", systemImage: "text.bubble")
+            }
             if manageMode {
                 Button { showEditor = true } label: { Label("Modifier le son", systemImage: "pencil") }
             }
@@ -274,6 +279,7 @@ struct TrackMenu: View {
         }
         .sheet(isPresented: $showCredits) { TrackCreditsSheet(track: track) }
         .sheet(isPresented: $showEditor) { TrackEditorView(track: track) }
+        .sheet(isPresented: $showAnnotations) { AnnotationsListSheet(track: track) }
     }
 }
 

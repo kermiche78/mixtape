@@ -8,6 +8,7 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showQueue = false
     @State private var showParty = false
+    @State private var annotating = false
     @ObservedObject private var party = PartySession.shared
 
     var body: some View {
@@ -31,6 +32,9 @@ struct NowPlayingView: View {
                     Spacer(minLength: 0)
                     ArtworkView(url: library.coverURL(track), cornerRadius: 14, placeholderSeed: track?.albumKey ?? "")
                         .frame(width: side, height: side)
+                        .overlay(alignment: .bottom) {
+                            if let track { AnnotationBubble(clock: player.clock, trackId: track.id) }
+                        }
                         .shadow(color: .black.opacity(0.45), radius: 30, y: 16)
                         .scaleEffect(player.isPlaying ? 1 : 0.84)
                         .animation(.spring(response: 0.45, dampingFraction: 0.72), value: player.isPlaying)
@@ -69,6 +73,15 @@ struct NowPlayingView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if let track {
+                        Button { annotating = true } label: {
+                            Image(systemName: "text.bubble")
+                                .font(.system(size: 17, weight: .semibold))
+                                .frame(width: 36, height: 36)
+                        }
+                        .buttonStyle(.plain)
+                        .liquidGlass(in: Circle(), interactive: true)
+                        .accessibilityLabel("Annoter ce passage")
+                        .sheet(isPresented: $annotating) { AnnotationEditor(track: track, start: player.currentTime) }
                         FavoriteButton(track: track, size: 20)
                             .frame(width: 36, height: 36)
                             .liquidGlass(in: Circle(), interactive: true)
@@ -216,9 +229,14 @@ private struct PressableStyle: ButtonStyle {
 struct LiveScrubber: View {
     @EnvironmentObject private var player: PlayerModel
     @ObservedObject var clock: PlaybackClock
+    @ObservedObject private var notes = AnnotationStore.shared
+    @AppStorage("showAnnotations") private var showAnnotations = true
 
     var body: some View {
-        Scrubber(value: clock.currentTime, total: max(player.duration, 0.1), buffered: clock.bufferedTime) { player.seek(to: $0) }
+        let markers = showAnnotations ? (player.current.map { notes.notes(for: $0.id).map(\.start) } ?? []) : []
+        Scrubber(value: clock.currentTime, total: max(player.duration, 0.1), buffered: clock.bufferedTime, markers: markers) {
+            player.seek(to: $0)
+        }
     }
 }
 
@@ -226,6 +244,8 @@ struct Scrubber: View {
     let value: Double
     let total: Double
     var buffered: Double = 0
+    /// Repères des passages annotés.
+    var markers: [Double] = []
     let onSeek: (Double) -> Void
 
     @State private var dragValue: Double?
@@ -243,6 +263,12 @@ struct Scrubber: View {
                         .animation(.linear(duration: 0.5), value: buffered)
                     Capsule().fill(.white.opacity(dragValue == nil ? 0.75 : 1))
                         .frame(width: geo.size.width * progress)
+                    ForEach(Array(markers.enumerated()), id: \.offset) { _, m in
+                        Capsule()
+                            .fill(Color.accentPink)
+                            .frame(width: 3, height: 13)
+                            .offset(x: geo.size.width * min(max(m / total, 0), 1) - 1.5)
+                    }
                 }
                 .frame(height: dragValue == nil ? 7 : 12)
                 .frame(maxHeight: .infinity)

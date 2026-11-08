@@ -69,11 +69,17 @@ struct MainTabs: View {
             .task {
                 AlarmManager.shared.attach(library: library, player: player)
                 await library.refresh()
+                await AnnotationStore.shared.refresh(api: library.api)
                 // App réinstallée (vide) : on récupère tout depuis le PC.
                 await BackupManager.shared.restore(api: library.api, player: player, onlyIfEmpty: true)
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { Task { await library.refresh() } }
+                if phase == .active {
+                    Task {
+                        await library.refresh()
+                        await AnnotationStore.shared.refresh(api: library.api)
+                    }
+                }
             }
             .onChange(of: player.navRequest) { _, request in
                 guard let request else { return }
@@ -368,6 +374,7 @@ struct SettingsView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @AppStorage("autoplay") private var autoplay = true
     @AppStorage("standbyEnabled") private var standbyEnabled = true
+    @AppStorage("showAnnotations") private var showAnnotations = true
     @ObservedObject private var backup = BackupManager.shared
     @State private var confirmRestore = false
     @State private var showListenTogether = false
@@ -397,10 +404,12 @@ struct SettingsView: View {
             Section {
                 Toggle("Lecture continue", isOn: $autoplay)
                     .tint(Color.accentPink)
+                Toggle("Afficher les annotations", isOn: $showAnnotations)
+                    .tint(Color.accentPink)
             } header: {
                 Text("Lecture")
             } footer: {
-                Text("Quand ta file d'attente est finie, Mixtape enchaîne sur des sons du même artiste et sur tes favoris.")
+                Text("Lecture continue : quand ta file d'attente est finie, Mixtape enchaîne sur des sons du même artiste et sur tes favoris. Annotations : les bulles et les repères des passages commentés dans le lecteur.")
             }
             Section {
                 Toggle("Mode veille", isOn: $standbyEnabled)

@@ -191,6 +191,23 @@ struct APIClient {
                                       body: jsonBody(["trackId": trackId, "name": name]), contentType: "application/json"))
     }
 
+    // MARK: Annotations « pour tout le monde »
+
+    func annotations() async throws -> [Annotation] {
+        try JSONDecoder().decode([Annotation].self, from: try checked(try await raw("api/annotations")))
+    }
+
+    func saveAnnotation(_ note: Annotation) async throws -> Annotation {
+        var fields: [String: Any] = ["id": note.id, "trackId": note.trackId, "start": note.start, "text": note.text]
+        if let end = note.end { fields["end"] = end }
+        let data = try checked(try await raw("api/annotations", method: "POST", body: jsonBody(fields), contentType: "application/json"))
+        return try JSONDecoder().decode(Annotation.self, from: data)
+    }
+
+    func deleteAnnotation(id: String) async throws {
+        _ = try checked(try await raw("api/annotations/\(id)", method: "DELETE"))
+    }
+
     // MARK: Écoute à deux
 
     func partyLink(code: String) -> URL { baseURL.appendingPathComponent("ecoute/\(code)") }

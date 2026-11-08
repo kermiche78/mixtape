@@ -114,7 +114,7 @@ final class BackupManager: ObservableObject {
     private let keys = [
         "favorites", "playCounts", "playHistory", "recentlyPlayed", "albumProgress", "listeningByDay",
         "reelsPenalties", "recentSearches", "lastSession", "autoplay", "standbyEnabled", "accentColor",
-        "albumSort", "songSort", "albumFilter", "songFilter",
+        "albumSort", "songSort", "albumFilter", "songFilter", "annotations", "showAnnotations", "partyHostName", "partyMode",
         "alarmEnabled", "alarmHour", "alarmMinute", "alarmRepeat", "alarmSource", "alarmTrackId",
     ]
 
@@ -178,6 +178,7 @@ final class BackupManager: ObservableObject {
         }
         AccentChoice.current = AccentChoice(rawValue: d.string(forKey: "accentColor") ?? "") ?? .rose
         Stats.shared.reload()
+        AnnotationStore.shared.reloadPrivate()
         player?.reloadSaved()
         message = "Sauvegarde récupérée : favoris, historique et stats sont de retour."
     }
