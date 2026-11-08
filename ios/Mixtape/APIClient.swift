@@ -79,6 +79,28 @@ struct APIClient {
         url("api/artist-photo", query: [URLQueryItem(name: "name", value: name), URLQueryItem(name: "v", value: String(version))])
     }
 
+    func getBackup() async throws -> Data {
+        try await send("api/backup")
+    }
+
+    /// Envoie la sauvegarde de l'iPhone au PC.
+    func putBackup(_ body: Data) async throws {
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/backup"))
+        request.httpMethod = "PUT"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        let response: URLResponse
+        do {
+            (_, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw APIError.unreachable
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.unreachable }
+        guard (200..<300).contains(http.statusCode) else { throw APIError.server(http.statusCode) }
+    }
+
     func playlists() async throws -> [Playlist] {
         try JSONDecoder().decode([Playlist].self, from: try await send("api/playlists"))
     }

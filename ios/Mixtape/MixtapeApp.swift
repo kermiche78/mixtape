@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct MixtapeApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var library = LibraryStore()
     @StateObject private var player = PlayerModel()
 

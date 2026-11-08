@@ -2,11 +2,6 @@ import CoreImage
 import SwiftUI
 import UIKit
 
-extension Color {
-    /// Rouge rosé façon Apple Music.
-    static let accentPink = Color(red: 0.98, green: 0.18, blue: 0.28)
-}
-
 // MARK: - Chargement des pochettes
 
 actor ImageLoader {

@@ -51,6 +51,9 @@ final class PlayerModel: ObservableObject {
         return saved
     }()
     private var lastSavedSecond = -1
+    private var lastTick: Date?
+    /// Mode soirée (plein écran pour la télé).
+    @Published var showParty = false
     private var pendingResume: Double = 0
     private var resumeObserver: AnyCancellable?
     /// Derniers sons écoutés (du plus récent au plus ancien), gardés entre les lancements.
@@ -84,6 +87,10 @@ final class PlayerModel: ObservableObject {
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
             Task { @MainActor in
                 guard let self, !self.isSeeking else { return }
+                // Temps d'écoute du jour : on compte le temps réellement passé en lecture.
+                let now = Date()
+                if self.isPlaying, let last = self.lastTick { Stats.shared.addListening(now.timeIntervalSince(last)) }
+                self.lastTick = self.isPlaying ? now : nil
                 self.currentTime = time.seconds.isFinite ? time.seconds : 0
                 // Ne republier la durée que si elle change vraiment (sinon toute l'app se redessine).
                 if let d = self.player.currentItem?.duration.seconds, d.isFinite, d > 0, abs(d - self.duration) > 0.5 { self.duration = d }
@@ -199,6 +206,16 @@ final class PlayerModel: ObservableObject {
     }
 
     func pause() { player.pause() }
+
+    /// Relit ce qui est gardé sur l'iPhone (après une restauration de la sauvegarde du PC).
+    func reloadSaved() {
+        recentlyPlayed = UserDefaults.standard.stringArray(forKey: "recentlyPlayed") ?? []
+        if let data = UserDefaults.standard.data(forKey: "albumProgress"),
+           let saved = try? JSONDecoder().decode([String: AlbumProgress].self, from: data) {
+            albumProgress = saved
+        }
+        restoreSession()
+    }
 
     func togglePlayPause() {
         guard current != nil else { return }

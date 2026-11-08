@@ -10,6 +10,7 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if library.isOffline { OfflineBanner().padding(.horizontal, 20) }
+                TodayListeningLine().padding(.horizontal, 20)
                 if library.tracks.isEmpty && !library.isLoading {
                     EmptyLibraryView().padding(.top, 60)
                 } else {
@@ -158,6 +159,9 @@ struct LibraryMenu: View {
             }
             Button { player.play(library.tracks, shuffled: true) } label: {
                 Label("Tout lire en aléatoire", systemImage: "shuffle")
+            }
+            Button { player.showParty = true } label: {
+                Label("Mode soirée", systemImage: "party.popper")
             }
         } label: {
             Image(systemName: "ellipsis")

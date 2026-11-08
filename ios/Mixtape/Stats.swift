@@ -12,6 +12,9 @@ final class Stats: ObservableObject {
     @Published private(set) var history: [PlayEvent]
 
     private static let historyLimit = 3000
+    /// Secondes écoutées par jour (« 2026-11-08 » → 5040). Pas publié : l'Accueil le relit toutes les 30 s.
+    private var listening: [String: Double] = UserDefaults.standard.dictionary(forKey: "listeningByDay") as? [String: Double] ?? [:]
+    private var lastListeningSave = Date()
 
     private init() {
         favorites = Set(UserDefaults.standard.stringArray(forKey: "favorites") ?? [])
@@ -37,6 +40,43 @@ final class Stats: ObservableObject {
         history.insert(PlayEvent(trackId: track.id, date: Date().timeIntervalSince1970), at: 0)
         if history.count > Self.historyLimit { history.removeLast(history.count - Self.historyLimit) }
         saveHistory()
+    }
+
+    // MARK: Temps d'écoute
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    func addListening(_ seconds: Double) {
+        guard seconds > 0, seconds < 5 else { return }
+        listening[Self.dayFormatter.string(from: Date()), default: 0] += seconds
+        if Date().timeIntervalSince(lastListeningSave) > 15 { flush() }
+    }
+
+    func listenedToday() -> Double { listening[Self.dayFormatter.string(from: Date())] ?? 0 }
+
+    /// Écrit le temps d'écoute sur l'iPhone (garde les 120 derniers jours).
+    func flush() {
+        lastListeningSave = Date()
+        if listening.count > 120 {
+            for key in listening.keys.sorted().prefix(listening.count - 120) { listening[key] = nil }
+        }
+        UserDefaults.standard.set(listening, forKey: "listeningByDay")
+    }
+
+    /// Relit tout depuis l'iPhone (après une restauration de la sauvegarde du PC).
+    func reload() {
+        let d = UserDefaults.standard
+        favorites = Set(d.stringArray(forKey: "favorites") ?? [])
+        playCounts = d.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
+        if let data = d.data(forKey: "playHistory"), let saved = try? JSONDecoder().decode([PlayEvent].self, from: data) {
+            history = saved
+        }
+        listening = d.dictionary(forKey: "listeningByDay") as? [String: Double] ?? [:]
     }
 
     func clearHistory() {

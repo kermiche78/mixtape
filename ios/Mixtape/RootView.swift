@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var library: LibraryStore
+    @AppStorage("accentColor") private var accent = AccentChoice.rose.rawValue
 
     var body: some View {
         Group {
@@ -23,9 +24,13 @@ struct MainTabs: View {
     @State private var paths: [NavigationPath] = Array(repeating: NavigationPath(), count: 5)
     @Namespace private var zoomNamespace
     @StateObject private var standby = StandbyMonitor()
+    @AppStorage("accentColor") private var accent = AccentChoice.rose.rawValue
+    @Environment(\.scenePhase) private var phase
 
     var body: some View {
         tabs
+            // Nouvelle couleur choisie : tous les écrans se redessinent avec.
+            .id(accent)
             .environment(\.zoomNamespace, zoomNamespace)
             .overlay(alignment: .top) { SharePreparingBanner() }
             // Mode veille : iPhone à l'horizontale et en charge.
@@ -38,6 +43,20 @@ struct MainTabs: View {
             .onChange(of: standby.isActive) { _, active in
                 if active { player.showNowPlaying = false }
             }
+            .fullScreenCover(isPresented: $player.showParty) { PartyView() }
+            .onChange(of: player.showParty) { _, on in
+                standby.suspended = on
+                if on { player.showNowPlaying = false }
+            }
+            // Sauvegarde sur le PC dès que l'app passe en arrière-plan.
+            .onChange(of: phase) { _, p in
+                if p == .background {
+                    let api = library.api
+                    Task { await BackupManager.shared.upload(api: api) }
+                } else if p == .active, AlarmManager.shared.enabled {
+                    Task { await AlarmManager.shared.reschedule() }
+                }
+            }
             .sheet(isPresented: $player.showNowPlaying) {
                 NowPlayingView()
             }
@@ -47,7 +66,12 @@ struct MainTabs: View {
             } message: {
                 Text(library.errorMessage ?? "")
             }
-            .task { await library.refresh() }
+            .task {
+                AlarmManager.shared.attach(library: library, player: player)
+                await library.refresh()
+                // App réinstallée (vide) : on récupère tout depuis le PC.
+                await BackupManager.shared.restore(api: library.api, player: player, onlyIfEmpty: true)
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await library.refresh() } }
             }
@@ -344,6 +368,8 @@ struct SettingsView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @AppStorage("autoplay") private var autoplay = true
     @AppStorage("standbyEnabled") private var standbyEnabled = true
+    @ObservedObject private var backup = BackupManager.shared
+    @State private var confirmRestore = false
 
     var body: some View {
         List {
@@ -381,6 +407,43 @@ struct SettingsView: View {
             } footer: {
                 Text("Quand l'iPhone est posé à l'horizontale et en charge, Mixtape affiche la pochette, l'heure et les commandes en grand.")
             }
+            Section("Couleur de l'app") {
+                AccentPicker()
+            }
+            Section {
+                NavigationLink {
+                    AlarmSettingsView()
+                } label: {
+                    Label("Réveil Mixtape", systemImage: "alarm")
+                }
+                Button {
+                    player.showParty = true
+                } label: {
+                    Label("Lancer le mode soirée", systemImage: "party.popper")
+                }
+            } header: {
+                Text("Extras")
+            } footer: {
+                Text("Mode soirée : pour l'afficher sur ta télé, ouvre le Centre de contrôle puis « Recopie de l'écran ».")
+            }
+            Section {
+                LabeledContent("Dernière sauvegarde",
+                               value: backup.lastBackup.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Jamais")
+                Button {
+                    Task { await backup.upload(api: library.api, manual: true) }
+                } label: {
+                    HStack {
+                        Text("Sauvegarder maintenant")
+                        Spacer()
+                        if backup.isWorking { ProgressView() }
+                    }
+                }
+                Button("Récupérer la sauvegarde du PC") { confirmRestore = true }
+            } header: {
+                Text("Sauvegarde sur le PC")
+            } footer: {
+                Text(backup.message ?? "Favoris, historique, stats, réglages et réveil sont envoyés sur ton PC à chaque fois que tu quittes l'app. Si tu réinstalles Mixtape, tout revient tout seul.")
+            }
             Section("Téléchargements") {
                 LabeledContent("Sons téléchargés", value: "\(downloads.downloaded.count)")
                 LabeledContent("Espace utilisé", value: downloads.totalSize)
@@ -397,6 +460,11 @@ struct SettingsView: View {
         .navigationTitle("Réglages")
         .confirmationDialog("Se déconnecter du serveur ?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Se déconnecter", role: .destructive) { library.disconnect() }
+        }
+        .confirmationDialog("Remplacer les données de l'iPhone par la sauvegarde du PC ?", isPresented: $confirmRestore, titleVisibility: .visible) {
+            Button("Récupérer la sauvegarde") {
+                Task { await backup.restore(api: library.api, player: player, onlyIfEmpty: false) }
+            }
         }
     }
 }

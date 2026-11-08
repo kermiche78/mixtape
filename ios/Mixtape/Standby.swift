@@ -12,6 +12,8 @@ final class StandbyMonitor: ObservableObject {
     @Published private(set) var angle: Angle = .degrees(90)
     /// Fermé à la main : on attend que l'iPhone repasse à la verticale avant de le remontrer.
     private var dismissed = false
+    /// Mis en pause pendant le mode soirée (qui est déjà à l'horizontale).
+    var suspended = false { didSet { update() } }
     private var cancellables = Set<AnyCancellable>()
 
     init() {
@@ -37,7 +39,7 @@ final class StandbyMonitor: ObservableObject {
         let charging = device.batteryState == .charging || device.batteryState == .full
 
         if orientation == .portrait || orientation == .portraitUpsideDown { dismissed = false }
-        guard enabled, charging, !dismissed else { setActive(false); return }
+        guard enabled, charging, !dismissed, !suspended else { setActive(false); return }
 
         switch orientation {
         case .landscapeLeft:
