@@ -30,6 +30,7 @@ targets:
       properties:
         CFBundleDisplayName: Mixtape
         NSFaceIDUsageDescription: Face ID protège le mode Gestion de Mixtape.
+        NSPhotoLibraryAddUsageDescription: Pour enregistrer tes cartes de story dans Photos.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
