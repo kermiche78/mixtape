@@ -29,6 +29,7 @@ targets:
       path: Mixtape/Info.plist
       properties:
         CFBundleDisplayName: Mixtape
+        NSFaceIDUsageDescription: Face ID protège le mode Gestion de Mixtape.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
