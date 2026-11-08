@@ -164,6 +164,8 @@ struct AlbumDetailView: View {
     @ObservedObject private var stats = Stats.shared
     @State private var tint: Color = .clear
     @State private var pageColor: Color = Color(white: 0.09)
+    @AppStorage("manageMode") private var manageMode = false
+    @State private var showEditor = false
     let albumID: String
 
     private var album: Album? { library.album(id: albumID) }
@@ -194,6 +196,10 @@ struct AlbumDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if manageMode, !album.isSingle {
+                        Button { showEditor = true } label: { Image(systemName: "pencil") }
+                            .accessibilityLabel("Modifier l'album")
+                    }
                     DownloadAllButton(tracks: album.tracks)
                     Menu {
                         Button { player.play(album.tracks) } label: { Label("Lire", systemImage: "play.fill") }
@@ -216,6 +222,7 @@ struct AlbumDetailView: View {
                     } label: { Image(systemName: "ellipsis") }
                 }
             }
+            .sheet(isPresented: $showEditor) { AlbumEditorView(album: album) }
             .task(id: album.coverTrack?.id) {
                 guard let url = library.coverURL(album.coverTrack),
                       let img = await ImageLoader.shared.image(for: url),
@@ -455,6 +462,7 @@ struct ArtistDetailView: View {
     @ObservedObject private var stats = Stats.shared
     @State private var filter: ReleaseKind = .popular
     @State private var collapsed = false
+    @AppStorage("manageMode") private var manageMode = false
     let name: String
 
     private var artist: Artist? { library.artist(named: name) }
@@ -514,6 +522,9 @@ struct ArtistDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
+                if manageMode {
+                    ToolbarItem(placement: .topBarTrailing) { ArtistPhotoPicker(artist: artist.name) }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button { player.play(artist.tracks) } label: { Label("Tout lire", systemImage: "play.fill") }

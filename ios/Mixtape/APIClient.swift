@@ -5,6 +5,7 @@ enum APIError: LocalizedError {
     case unauthorized
     case server(Int)
     case unreachable
+    case message(String)
 
     var errorDescription: String? {
         switch self {
@@ -12,6 +13,7 @@ enum APIError: LocalizedError {
         case .unauthorized: return "Mot de passe incorrect."
         case .server(let code): return "Le serveur a répondu avec une erreur (\(code))."
         case .unreachable: return "Serveur injoignable. Vérifie que le PC est allumé et que Tailscale est activé."
+        case .message(let text): return text
         }
     }
 }
@@ -101,6 +103,123 @@ struct APIClient {
         guard (200..<300).contains(http.statusCode) else { throw APIError.server(http.statusCode) }
     }
 
+    // MARK: Requêtes avec paramètres, formulaires et codes d'erreur
+
+    private func raw(_ path: String, query: [URLQueryItem] = [], method: String = "GET",
+                     body: Data? = nil, contentType: String? = nil, timeout: TimeInterval = 15) async throws -> (Data, Int) {
+        var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        if !query.isEmpty { comps.queryItems = query }
+        var request = URLRequest(url: comps.url!)
+        request.httpMethod = method
+        request.timeoutInterval = timeout
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+        request.httpBody = body
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw APIError.unreachable
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.unreachable }
+        if http.statusCode == 401 { throw APIError.unauthorized }
+        return (data, http.statusCode)
+    }
+
+    private func checked(_ result: (Data, Int)) throws -> Data {
+        guard (200..<300).contains(result.1) else {
+            // Le serveur explique souvent pourquoi (« Ce son n'est pas rangé dans un dossier d'album… »).
+            if let obj = try? JSONSerialization.jsonObject(with: result.0) as? [String: Any],
+               let detail = obj["detail"] as? String {
+                throw APIError.message(detail)
+            }
+            throw APIError.server(result.1)
+        }
+        return result.0
+    }
+
+    private func jsonBody(_ value: [String: Any]) -> Data? {
+        try? JSONSerialization.data(withJSONObject: value)
+    }
+
+    private func multipart(_ fields: [String: String], file: Data, fileField: String) -> (Data, String) {
+        let boundary = "mixtape-\(UUID().uuidString)"
+        var body = Data()
+        func add(_ s: String) { body.append(Data(s.utf8)) }
+        for (key, value) in fields {
+            add("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(key)\"\r\n\r\n\(value)\r\n")
+        }
+        add("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(fileField)\"; filename=\"image.jpg\"\r\n")
+        add("Content-Type: image/jpeg\r\n\r\n")
+        body.append(file)
+        add("\r\n--\(boundary)--\r\n")
+        return (body, "multipart/form-data; boundary=\(boundary)")
+    }
+
+    // MARK: Mode Gestion (tout est enregistré sur le PC)
+
+    func managedAlbum(trackId: String) async throws -> ManagedAlbum {
+        let data = try checked(try await raw("api/manage/album", query: [URLQueryItem(name: "trackId", value: trackId)]))
+        return try JSONDecoder().decode(ManagedAlbum.self, from: data)
+    }
+
+    func setAlbumText(trackId: String, kind: String, text: String) async throws {
+        _ = try checked(try await raw("api/manage/album-text", method: "PUT",
+                                      body: jsonBody(["trackId": trackId, "kind": kind, "text": text]),
+                                      contentType: "application/json"))
+    }
+
+    func uploadAlbumCover(trackId: String, jpeg: Data) async throws {
+        let (body, type) = multipart(["trackId": trackId], file: jpeg, fileField: "image")
+        _ = try checked(try await raw("api/manage/album-cover", method: "POST", body: body, contentType: type, timeout: 60))
+    }
+
+    func uploadArtistPhoto(artist: String, jpeg: Data) async throws {
+        let (body, type) = multipart(["artist": artist], file: jpeg, fileField: "image")
+        _ = try checked(try await raw("api/manage/artist-photo", method: "POST", body: body, contentType: type, timeout: 60))
+    }
+
+    func editTrack(trackId: String, title: String, trackNumber: Int?) async throws {
+        var fields: [String: Any] = ["trackId": trackId, "title": title]
+        if let trackNumber { fields["trackNumber"] = trackNumber } else { fields["clearNumber"] = true }
+        _ = try checked(try await raw("api/manage/track", method: "POST", body: jsonBody(fields), contentType: "application/json"))
+    }
+
+    func renameAlbum(trackId: String, name: String) async throws {
+        _ = try checked(try await raw("api/manage/album-name", method: "POST",
+                                      body: jsonBody(["trackId": trackId, "name": name]), contentType: "application/json"))
+    }
+
+    // MARK: Écoute à deux
+
+    func partyLink(code: String) -> URL { baseURL.appendingPathComponent("ecoute/\(code)") }
+
+    func partyCreate(_ fields: [String: Any]) async throws -> PartyState {
+        let data = try checked(try await raw("api/party", method: "POST", body: jsonBody(fields), contentType: "application/json"))
+        return try JSONDecoder().decode(PartyState.self, from: data)
+    }
+
+    /// nil = l'écoute n'existe plus sur le PC.
+    func partyState(code: String) async throws -> PartyState? {
+        let result = try await raw("api/party/\(code)", timeout: 8)
+        if result.1 == 404 { return nil }
+        return try JSONDecoder().decode(PartyState.self, from: try checked(result))
+    }
+
+    /// Envoie l'état de l'iPhone. `conflict` = un invité a changé quelque chose juste avant.
+    func partyUpdate(code: String, fields: [String: Any]) async throws -> (state: PartyState?, conflict: Bool) {
+        let result = try await raw("api/party/\(code)", method: "PUT", body: jsonBody(fields),
+                                   contentType: "application/json", timeout: 8)
+        if result.1 == 404 { return (nil, false) }
+        if result.1 == 409 { return (try? JSONDecoder().decode(PartyState.self, from: result.0), true) }
+        return (try JSONDecoder().decode(PartyState.self, from: try checked(result)), false)
+    }
+
+    func partyEnd(code: String) async {
+        _ = try? await raw("api/party/\(code)", method: "DELETE", timeout: 8)
+    }
+
     func playlists() async throws -> [Playlist] {
         try JSONDecoder().decode([Playlist].self, from: try await send("api/playlists"))
     }
@@ -138,4 +257,34 @@ private struct AnyEncodable: Encodable {
     let value: Encodable
     init(_ value: Encodable) { self.value = value }
     func encode(to encoder: Encoder) throws { try value.encode(to: encoder) }
+}
+
+struct ManagedAlbum: Decodable {
+    let folder: String
+    let credits: String
+    let description: String
+}
+
+struct PartyGuest: Decodable, Identifiable, Equatable {
+    let id: String
+    let name: String
+}
+
+struct PartyState: Decodable, Equatable {
+    let code: String
+    let queue: [String]
+    let index: Int
+    let position: Double
+    let playing: Bool
+    let updatedAt: Double
+    let serverTime: Double
+    let version: Int
+    let by: String
+    let mode: String
+    let guests: [PartyGuest]
+    let addedBy: [String: String]
+    let host: String
+
+    /// Position actuelle, en tenant compte du temps écoulé depuis la dernière mise à jour.
+    var currentPosition: Double { playing ? position + max(0, serverTime - updatedAt) : position }
 }

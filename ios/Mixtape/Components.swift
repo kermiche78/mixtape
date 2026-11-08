@@ -213,6 +213,8 @@ struct TrackMenu: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var stats = Stats.shared
     @State private var showCredits = false
+    @State private var showEditor = false
+    @AppStorage("manageMode") private var manageMode = false
 
     var body: some View {
         Menu {
@@ -253,6 +255,9 @@ struct TrackMenu: View {
             if library.albumCredits[track.albumKey] != nil {
                 Button { showCredits = true } label: { Label("Crédits", systemImage: "person.2") }
             }
+            if manageMode {
+                Button { showEditor = true } label: { Label("Modifier le son", systemImage: "pencil") }
+            }
             if let playlistContext {
                 Button(role: .destructive) {
                     var p = playlistContext
@@ -268,6 +273,7 @@ struct TrackMenu: View {
                 .contentShape(Rectangle())
         }
         .sheet(isPresented: $showCredits) { TrackCreditsSheet(track: track) }
+        .sheet(isPresented: $showEditor) { TrackEditorView(track: track) }
     }
 }
 

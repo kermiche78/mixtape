@@ -370,6 +370,7 @@ struct SettingsView: View {
     @AppStorage("standbyEnabled") private var standbyEnabled = true
     @ObservedObject private var backup = BackupManager.shared
     @State private var confirmRestore = false
+    @State private var showListenTogether = false
 
     var body: some View {
         List {
@@ -421,6 +422,11 @@ struct SettingsView: View {
                 } label: {
                     Label("Lancer le mode soirée", systemImage: "party.popper")
                 }
+                Button {
+                    showListenTogether = true
+                } label: {
+                    Label("Écouter avec quelqu'un", systemImage: "person.2.wave.2")
+                }
             } header: {
                 Text("Extras")
             } footer: {
@@ -444,6 +450,13 @@ struct SettingsView: View {
             } footer: {
                 Text(backup.message ?? "Favoris, historique, stats, réglages et réveil sont envoyés sur ton PC à chaque fois que tu quittes l'app. Si tu réinstalles Mixtape, tout revient tout seul.")
             }
+            Section {
+                ManageModeToggle()
+            } header: {
+                Text("Gestion")
+            } footer: {
+                Text("Avec Face ID. Fait apparaître « Modifier » sur les albums, les sons et les artistes : pochettes, crédits, descriptions, photos, titres. Tout est enregistré sur le PC.")
+            }
             Section("Téléchargements") {
                 LabeledContent("Sons téléchargés", value: "\(downloads.downloaded.count)")
                 LabeledContent("Espace utilisé", value: downloads.totalSize)
@@ -461,6 +474,7 @@ struct SettingsView: View {
         .confirmationDialog("Se déconnecter du serveur ?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Se déconnecter", role: .destructive) { library.disconnect() }
         }
+        .sheet(isPresented: $showListenTogether) { PartySheet() }
         .confirmationDialog("Remplacer les données de l'iPhone par la sauvegarde du PC ?", isPresented: $confirmRestore, titleVisibility: .visible) {
             Button("Récupérer la sauvegarde") {
                 Task { await backup.restore(api: library.api, player: player, onlyIfEmpty: false) }

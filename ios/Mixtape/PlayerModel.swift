@@ -207,6 +207,33 @@ final class PlayerModel: ObservableObject {
 
     func pause() { player.pause() }
 
+    /// Écoute à deux : se cale sur ce qu'un invité vient de changer (file, son, position, lecture).
+    func sync(queue newQueue: [Track], index newIndex: Int, position: Double, playing: Bool) {
+        guard !newQueue.isEmpty else { return }
+        let i = min(max(newIndex, 0), newQueue.count - 1)
+        let sameTrack = current?.id == newQueue[i].id && player.currentItem != nil
+        let queueChanged = newQueue.map(\.id) != queue.map(\.id)
+        if queueChanged {
+            queue = newQueue
+            originalQueue = newQueue
+            shuffle = false
+        }
+        index = i
+        guard sameTrack else {
+            pendingResume = position > 1 ? position : 0
+            loadCurrent(autoplay: playing)
+            return
+        }
+        if abs(currentTime - position) > 1.5 { seek(to: position) }
+        if playing, !isPlaying {
+            try? AVAudioSession.sharedInstance().setActive(true)
+            player.play()
+        } else if !playing, isPlaying {
+            player.pause()
+        }
+        if queueChanged { refreshPreload() }
+    }
+
     /// Relit ce qui est gardé sur l'iPhone (après une restauration de la sauvegarde du PC).
     func reloadSaved() {
         recentlyPlayed = UserDefaults.standard.stringArray(forKey: "recentlyPlayed") ?? []

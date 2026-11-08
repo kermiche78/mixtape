@@ -7,6 +7,8 @@ struct NowPlayingView: View {
     @EnvironmentObject private var player: PlayerModel
     @Environment(\.dismiss) private var dismiss
     @State private var showQueue = false
+    @State private var showParty = false
+    @ObservedObject private var party = PartySession.shared
 
     var body: some View {
         let track = player.current
@@ -19,6 +21,8 @@ struct NowPlayingView: View {
                     .frame(width: 38, height: 5)
                     .padding(.top, 10)
                     .padding(.bottom, 14)
+
+                PartyBanner().padding(.bottom, 8)
 
                 if showQueue {
                     QueuePanel()
@@ -118,6 +122,9 @@ struct NowPlayingView: View {
                         Spacer(minLength: 0)
                         SleepTimerButton()
                         Spacer(minLength: 0)
+                        toggleButton("person.2.wave.2", on: party.isActive) { showParty = true }
+                            .accessibilityLabel("Écouter avec quelqu'un")
+                        Spacer(minLength: 0)
                         toggleButton("list.bullet", on: showQueue) {
                             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { showQueue.toggle() }
                         }
@@ -137,6 +144,7 @@ struct NowPlayingView: View {
         .preferredColorScheme(.dark)
         .presentationDragIndicator(.hidden)
         .onChange(of: player.current == nil) { _, isEmpty in if isEmpty { dismiss() } }
+        .sheet(isPresented: $showParty) { PartySheet() }
     }
 
     private func controlButton(_ icon: String, size: CGFloat, action: @escaping () -> Void) -> some View {
