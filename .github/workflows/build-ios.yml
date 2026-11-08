@@ -63,6 +63,7 @@ jobs:
           fi
           URL="${MIXTAPE_URL%/}"
           URL="$(printf '%s' "$URL" | tr -d '[:space:]')"
+          MESSAGE="$(git log -1 --format=%s | base64 | tr -d "\n")"
           {
             echo "### Envoi de l'app sur le PC"
             echo "- Test de l'adresse : $(curl -sS -o /dev/null -m 30 -w '%{http_code}' "$URL/app" 2>&1)"
@@ -70,6 +71,7 @@ jobs:
           for i in 1 2 3; do
             code=$(curl -sS -o /tmp/reponse.txt -m 180 -w '%{http_code}' -X POST \
               -H "X-Mixtape-Key: $MIXTAPE_UPLOAD_KEY" -H "X-Mixtape-Build: ${{ github.run_number }}" \
+              -H "X-Mixtape-Message: $MESSAGE" \
               -H "Content-Type: application/octet-stream" --data-binary @ios/Mixtape.ipa \
               "$URL/app/upload" 2>/tmp/erreur.txt) || true
             echo "- Essai $i : code $code $(head -c 200 /tmp/erreur.txt) $(head -c 200 /tmp/reponse.txt)" >> "$GITHUB_STEP_SUMMARY"
