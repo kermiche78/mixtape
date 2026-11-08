@@ -21,6 +21,9 @@ final class DownloadManager: ObservableObject {
         var f = folder
         try? f.setResourceValues(excluded)
         let saved = UserDefaults.standard.stringArray(forKey: indexKey) ?? []
+        if UserDefaults.standard.stringArray(forKey: "wantedDownloads") == nil, !saved.isEmpty {
+            UserDefaults.standard.set(saved, forKey: "wantedDownloads")
+        }
         downloaded = Set(saved.filter { id in
             (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.contains { $0.hasPrefix(id + ".") } ?? false
         })
@@ -35,40 +38,98 @@ final class DownloadManager: ObservableObject {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    // MARK: Liste des sons voulus (sauvegardée sur le PC)
+    //
+    // Les fichiers restent sur l'iPhone, mais la liste des sons que tu as téléchargés part avec la
+    // sauvegarde sur le PC : après une réinstallation, « Retélécharger mes sons » les récupère tous.
+    private let wantedKey = "wantedDownloads"
+
+    private var wanted: Set<String> {
+        get {
+            if let list = UserDefaults.standard.stringArray(forKey: wantedKey) { return Set(list) }
+            // Avant cette version : l'ancienne liste (même si les fichiers ont disparu).
+            return Set(UserDefaults.standard.stringArray(forKey: indexKey) ?? []).union(downloaded)
+        }
+        set { UserDefaults.standard.set(Array(newValue), forKey: wantedKey) }
+    }
+
+    /// Sons téléchargés autrefois mais absents de l'iPhone (après une réinstallation par exemple).
+    func missing(in library: LibraryStore) -> [Track] {
+        let ids = wanted.subtracting(downloaded).subtracting(inProgress)
+        return ids.compactMap { library.track($0) }.sorted { $0.title < $1.title }
+    }
+
+    func redownloadMissing(library: LibraryStore) {
+        download(missing(in: library), api: library.api)
+    }
+
+    // MARK: File d'attente (3 téléchargements à la fois, pour les gros lots comme les favoris)
+    private var queue: [(track: Track, source: URL)] = []
+    private var running = 0
+    private let maxParallel = 3
+
+    /// Nombre de sons qui restent à télécharger dans le lot en cours.
+    var remaining: Int { inProgress.count }
+
     func download(_ tracks: [Track], api: APIClient?) {
         guard let api else { return }
+        var list = wanted
         for track in tracks where !downloaded.contains(track.id) && !inProgress.contains(track.id) {
             inProgress.insert(track.id)
-            let source = api.streamURL(for: track)
-            let dest = folder.appendingPathComponent("\(track.id).\(track.ext)")
+            list.insert(track.id)
+            queue.append((track, api.streamURL(for: track)))
+        }
+        for track in tracks { list.insert(track.id) }
+        wanted = list
+        pump()
+    }
+
+    private func pump() {
+        while running < maxParallel, !queue.isEmpty {
+            let item = queue.removeFirst()
+            running += 1
             Task {
-                do {
-                    let (tmp, response) = try await URLSession.shared.download(from: source)
-                    guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-                    try? FileManager.default.removeItem(at: dest)
-                    try FileManager.default.moveItem(at: tmp, to: dest)
-                    downloaded.insert(track.id)
-                    save()
-                } catch {
-                    try? FileManager.default.removeItem(at: dest)
-                }
-                inProgress.remove(track.id)
+                await fetch(item.track, from: item.source)
+                running -= 1
+                inProgress.remove(item.track.id)
+                pump()
             }
         }
     }
 
+    private func fetch(_ track: Track, from source: URL) async {
+        let dest = folder.appendingPathComponent("\(track.id).\(track.ext)")
+        do {
+            let (tmp, response) = try await URLSession.shared.download(from: source)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.moveItem(at: tmp, to: dest)
+            downloaded.insert(track.id)
+            save()
+        } catch {
+            try? FileManager.default.removeItem(at: dest)
+        }
+    }
+
     func remove(_ tracks: [Track]) {
+        let ids = Set(tracks.map(\.id))
+        let queued = Set(queue.map(\.track.id)).intersection(ids)
+        queue.removeAll { ids.contains($0.track.id) }
+        inProgress.subtract(queued)
         for track in tracks {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(track.id).\(track.ext)"))
             downloaded.remove(track.id)
         }
+        wanted = wanted.subtracting(ids)
         save()
     }
 
     func removeAll() {
+        queue.removeAll()
         try? FileManager.default.removeItem(at: folder)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         downloaded = []
+        wanted = []
         save()
     }
 
@@ -152,6 +213,7 @@ struct DownloadsView: View {
         let ordered = groups.flatMap { $0.tracks }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                RedownloadBanner()
                 if !groups.isEmpty {
                     Picker("Affichage", selection: $mode) {
                         Text("Albums").tag(0)
@@ -229,5 +291,40 @@ struct DownloadsView: View {
             }
         }
         .navigationTitle("Téléchargements")
+    }
+}
+
+/// « 42 sons à retélécharger » : après une réinstallation, récupère d'un coup tous tes téléchargements.
+struct RedownloadBanner: View {
+    @EnvironmentObject private var library: LibraryStore
+    @ObservedObject private var downloads = DownloadManager.shared
+
+    var body: some View {
+        let missing = downloads.missing(in: library)
+        if !missing.isEmpty || downloads.remaining > 0 {
+            HStack(spacing: 12) {
+                Image(systemName: downloads.remaining > 0 ? "arrow.down.circle.dotted" : "arrow.clockwise.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(Color.accentPink)
+                VStack(alignment: .leading, spacing: 2) {
+                    if downloads.remaining > 0 {
+                        Text("Téléchargement en cours").font(.subheadline.weight(.semibold))
+                        Text("Encore \(downloads.remaining) son\(downloads.remaining > 1 ? "s" : "")").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("\(missing.count) son\(missing.count > 1 ? "s" : "") à retélécharger").font(.subheadline.weight(.semibold))
+                        Text("Ils étaient téléchargés avant mais ne sont plus sur l'iPhone.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+                if downloads.remaining == 0 {
+                    Button("Retélécharger") { downloads.redownloadMissing(library: library) }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color.accentPink)
+                        .controlSize(.small)
+                }
+            }
+            .padding(14)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
     }
 }

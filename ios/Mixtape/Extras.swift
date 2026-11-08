@@ -116,7 +116,7 @@ final class BackupManager: ObservableObject {
         "reelsPenalties", "recentSearches", "lastSession", "autoplay", "standbyEnabled", "accentColor",
         "albumSort", "songSort", "albumFilter", "songFilter", "annotations", "showAnnotations", "partyHostName", "partyMode",
         "alarmEnabled", "alarmHour", "alarmMinute", "alarmRepeat", "alarmSource", "alarmTrackId",
-        "animatedCoversOn", "staticCoverAlbums",
+        "animatedCoversOn", "staticCoverAlbums", "wantedDownloads",
     ]
 
     private init() {}

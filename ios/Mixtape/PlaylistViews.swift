@@ -161,6 +161,7 @@ struct PlaylistDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if !tracks.isEmpty { DownloadAllButton(tracks: tracks) }
                     EditButton()
                     Menu {
                         Button { newName = playlist.name; showRename = true } label: { Label("Renommer", systemImage: "pencil") }

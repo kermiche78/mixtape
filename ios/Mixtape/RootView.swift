@@ -485,6 +485,8 @@ struct SettingsView: View {
                 Text("Avec Face ID. Fait apparaître « Modifier » sur les albums, les sons et les artistes : pochettes, crédits, descriptions, photos, titres. Tout est enregistré sur le PC.")
             }
             Section("Téléchargements") {
+                RedownloadBanner()
+                    .listRowInsets(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
                 LabeledContent("Sons téléchargés", value: "\(downloads.downloaded.count)")
                 LabeledContent("Espace utilisé", value: downloads.totalSize)
                 Button("Supprimer tous les téléchargements", role: .destructive) { downloads.removeAll() }

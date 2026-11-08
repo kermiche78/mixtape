@@ -163,5 +163,10 @@ struct FavoritesView: View {
             }
         }
         .navigationTitle("Favoris")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if !list.isEmpty { DownloadAllButton(tracks: list) }
+            }
+        }
     }
 }
