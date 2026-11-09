@@ -526,6 +526,9 @@ struct ArtistDetailView: View {
     @State private var filter: ReleaseKind = .popular
     @State private var collapsed = false
     @AppStorage("manageMode") private var manageMode = false
+    /// Fond de page aux couleurs de la photo de l'artiste, comme Apple Music.
+    @State private var pageColor: Color = Color(white: 0.09)
+    @State private var glow: Color = .clear
     let name: String
 
     private var artist: Artist? { library.artist(named: name) }
@@ -566,6 +569,16 @@ struct ArtistDetailView: View {
                 }
                 .padding(.bottom, 30)
             }
+            .background {
+                // Une lueur de la couleur de la photo sous l'en-tête, qui se fond dans le fond de page.
+                ZStack(alignment: .top) {
+                    pageColor
+                    LinearGradient(colors: [glow.opacity(0.5), glow.opacity(0)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: heroHeight + 420)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            }
             .coordinateSpace(name: "artistScroll")
             // Va chercher le résumé Wikipédia dès que la page s'ouvre.
             .task(id: artist.name) { await ArtistBios.shared.load(artist.name) }
@@ -583,13 +596,25 @@ struct ArtistDetailView: View {
                     .padding(.horizontal, 70)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
-                    .background(.bar, ignoresSafeAreaEdges: .top)
+                    .background(pageColor.opacity(0.92), ignoresSafeAreaEdges: .top)
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
           }
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
+            // Texte blanc sur le fond coloré, même si l'iPhone est en mode clair.
+            .environment(\.colorScheme, .dark)
+            .task(id: library.artistImageURL(artist)) {
+                guard let url = library.artistImageURL(artist),
+                      let img = await ImageLoader.shared.image(for: url) else { return }
+                let page = ArtworkColor.background(of: img) ?? pageColor
+                let accent = ArtworkColor.average(of: img) ?? .clear
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    pageColor = page
+                    glow = accent
+                }
+            }
             .toolbar {
                 if manageMode {
                     ToolbarItem(placement: .topBarTrailing) { ArtistPhotoPicker(artist: artist.name) }
@@ -623,7 +648,10 @@ struct ArtistDetailView: View {
                     .frame(width: side, height: side)
                     .frame(width: geo.size.width, height: heroHeight + stretch)
                     .clipped()
-                LinearGradient(colors: [.clear, .clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom)
+                // La photo se fond dans la couleur de la page (pas de coupure nette).
+                LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.45),
+                                       .init(color: pageColor.opacity(0.7), location: 0.8), .init(color: pageColor, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(artist.name)

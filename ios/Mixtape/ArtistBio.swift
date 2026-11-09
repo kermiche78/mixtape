@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Translation
 
 /// Petit résumé de chaque artiste. On identifie d'abord l'artiste avec précision
 /// (MusicBrainz, la base de données de référence de la musique, reliée à Wikidata),
@@ -16,14 +17,19 @@ final class ArtistBios: ObservableObject {
         var lang: String
         var fetched: Double
         var source: String?     // « Wikipédia », « TheAudioDB »…
+        var translated: String? // version française, traduite sur l'iPhone quand le texte est en anglais
+
+        var shownText: String { translated ?? text }
     }
 
     @Published private(set) var bios: [String: Bio] = [:]
     private var loading: Set<String> = []
-    private let key = "artistBios2"
+    private let key = "artistBios3"
 
     private init() {
-        UserDefaults.standard.removeObject(forKey: "artistBios")   // ancienne méthode, moins précise
+        // Anciennes versions : certains artistes étaient notés « rien trouvé » à tort.
+        UserDefaults.standard.removeObject(forKey: "artistBios")
+        UserDefaults.standard.removeObject(forKey: "artistBios2")
         if let data = UserDefaults.standard.data(forKey: key),
            let saved = try? JSONDecoder().decode([String: Bio].self, from: data) {
             bios = saved
@@ -38,12 +44,25 @@ final class ArtistBios: ObservableObject {
     /// Va chercher le résumé si on ne l'a pas encore (ou réessaie une fois par semaine si rien trouvé).
     func load(_ name: String) async {
         let id = name.lowercased()
-        if let b = bios[id], !b.text.isEmpty || Date().timeIntervalSince1970 - b.fetched < 7 * 86400 { return }
+        if let b = bios[id], !b.text.isEmpty || Date().timeIntervalSince1970 - b.fetched < 86400 { return }
         guard !loading.contains(id) else { return }
         loading.insert(id)
         defer { loading.remove(id) }
         guard let found = await Self.find(name) else { return }   // pas de réseau : on réessaiera
         bios[id] = found
+        save()
+    }
+
+    /// Garde la traduction française (faite une seule fois).
+    func setTranslation(_ name: String, _ text: String) {
+        let id = name.lowercased()
+        guard var b = bios[id], !text.isEmpty else { return }
+        b.translated = text
+        bios[id] = b
+        save()
+    }
+
+    private func save() {
         if let data = try? JSONEncoder().encode(bios) { UserDefaults.standard.set(data, forKey: key) }
     }
 
@@ -96,8 +115,10 @@ final class ArtistBios: ObservableObject {
         var r = URLRequest(url: url)
         r.timeoutInterval = 10
         // MusicBrainz et Wikipédia demandent qu'on se présente.
-        r.setValue("Mixtape/1.0 (lecteur de musique perso pour iPhone)", forHTTPHeaderField: "User-Agent")
-        r.setValue("Mixtape/1.0 (lecteur de musique perso pour iPhone)", forHTTPHeaderField: "Api-User-Agent")
+        // (Wikipédia refuse les applis qui ne donnent pas d'adresse de contact.)
+        let agent = "Mixtape/1.0 (+https://github.com/kermiche78/mixtape)"
+        r.setValue(agent, forHTTPHeaderField: "User-Agent")
+        r.setValue(agent, forHTTPHeaderField: "Api-User-Agent")
         return r
     }
 
@@ -184,7 +205,10 @@ final class ArtistBios: ObservableObject {
         guard let url = URL(string: "https://\(lang).wikipedia.org/api/rest_v1/page/summary/\(path)") else { return .missing }
         guard let (data, response) = try? await URLSession.shared.data(for: request(url)),
               let http = response as? HTTPURLResponse else { return .unreachable }
-        guard http.statusCode == 200, let s = try? JSONDecoder().decode(Summary.self, from: data) else { return .missing }
+        // 404 = la page n'existe pas. Toute autre erreur (refus, surcharge…) : on réessaiera plus tard,
+        // sans noter l'artiste comme « introuvable ».
+        if http.statusCode == 404 { return .missing }
+        guard http.statusCode == 200, let s = try? JSONDecoder().decode(Summary.self, from: data) else { return .unreachable }
         return .found(s)
     }
 
@@ -238,19 +262,54 @@ struct ArtistAboutSection: View {
             if let bio = bios.bio(for: name) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("À propos").font(.title3.bold())
-                    AlbumDescription(title: name, text: bio.text)
+                    AlbumDescription(title: name, text: bio.shownText)
                     if let link = bio.url, let url = URL(string: link) {
                         Link(destination: url) {
-                            Text("Source : \(bio.source ?? "Wikipédia")\(bio.lang == "en" ? " (en anglais)" : "")")
+                            Text("Source : \(bio.source ?? "Wikipédia")\(bio.lang == "en" ? (bio.translated != nil ? " · traduit de l'anglais" : " (en anglais)") : "")")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
                     }
                 }
                 .padding(.horizontal, 20)
+                .modifier(TranslateBio(name: name, bio: bio))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: name) { await bios.load(name) }
+    }
+}
+
+/// Résumé en anglais : traduit en français sur l'iPhone (traduction d'Apple, sans serveur).
+private struct TranslateBio: ViewModifier {
+    let name: String
+    let bio: ArtistBios.Bio
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *), bio.lang == "en", bio.translated == nil {
+            content.modifier(TranslateBioTask(name: name, text: bio.text))
+        } else {
+            content
+        }
+    }
+}
+
+@available(iOS 18.0, *)
+private struct TranslateBioTask: ViewModifier {
+    let name: String
+    let text: String
+    @State private var config: TranslationSession.Configuration?
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                config = TranslationSession.Configuration(source: Locale.Language(identifier: "en"),
+                                                          target: Locale.Language(identifier: "fr"))
+            }
+            .translationTask(config) { session in
+                guard let result = try? await session.translate(text) else { return }
+                let french = result.targetText
+                await MainActor.run { ArtistBios.shared.setTranslation(name, french) }
+            }
     }
 }
