@@ -527,12 +527,11 @@ struct ArtistDetailView: View {
     @State private var collapsed = false
     @AppStorage("manageMode") private var manageMode = false
     /// Fond de page aux couleurs de la photo de l'artiste, comme Apple Music.
-    @State private var pageColor: Color = Color(white: 0.09)
-    @State private var glow: Color = .clear
+    @State private var pageColor: Color = Color(white: 0.12)
     let name: String
 
     private var artist: Artist? { library.artist(named: name) }
-    private let heroHeight: CGFloat = 400
+    private let heroHeight: CGFloat = 470
 
     var body: some View {
         if let artist {
@@ -569,16 +568,8 @@ struct ArtistDetailView: View {
                 }
                 .padding(.bottom, 30)
             }
-            .background {
-                // Une lueur de la couleur de la photo sous l'en-tête, qui se fond dans le fond de page.
-                ZStack(alignment: .top) {
-                    pageColor
-                    LinearGradient(colors: [glow.opacity(0.5), glow.opacity(0)], startPoint: .top, endPoint: .bottom)
-                        .frame(height: heroHeight + 420)
-                }
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            }
+            // Toute la page a la couleur du bas de la photo : aucune coupure sous l'en-tête.
+            .background { pageColor.ignoresSafeArea().allowsHitTesting(false) }
             .coordinateSpace(name: "artistScroll")
             // Va chercher le résumé Wikipédia dès que la page s'ouvre.
             .task(id: artist.name) { await ArtistBios.shared.load(artist.name) }
@@ -608,12 +599,8 @@ struct ArtistDetailView: View {
             .task(id: library.artistImageURL(artist)) {
                 guard let url = library.artistImageURL(artist),
                       let img = await ImageLoader.shared.image(for: url) else { return }
-                let page = ArtworkColor.background(of: img) ?? pageColor
-                let accent = ArtworkColor.average(of: img) ?? .clear
-                withAnimation(.easeInOut(duration: 0.5)) {
-                    pageColor = page
-                    glow = accent
-                }
+                let page = ArtworkColor.bottomBackground(of: img) ?? pageColor
+                withAnimation(.easeInOut(duration: 0.5)) { pageColor = page }
             }
             .toolbar {
                 if manageMode {
@@ -648,10 +635,22 @@ struct ArtistDetailView: View {
                     .frame(width: side, height: side)
                     .frame(width: geo.size.width, height: heroHeight + stretch)
                     .clipped()
-                // La photo se fond dans la couleur de la page (pas de coupure nette).
-                LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.45),
-                                       .init(color: pageColor.opacity(0.7), location: 0.8), .init(color: pageColor, location: 1)],
+                // Fondu façon Apple Music : le bas de la photo devient de plus en plus flou…
+                ArtworkView(url: library.artistImageURL(artist), cornerRadius: 0, placeholderSeed: artist.id)
+                    .frame(width: side, height: side)
+                    .frame(width: geo.size.width, height: heroHeight + stretch)
+                    .clipped()
+                    .blur(radius: 30, opaque: true)
+                    .mask(LinearGradient(stops: [.init(color: .clear, location: 0.45), .init(color: .black, location: 0.8)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .allowsHitTesting(false)
+                // … puis se fond dans la couleur de la page, qui continue en dessous.
+                LinearGradient(stops: [.init(color: pageColor.opacity(0), location: 0.5),
+                                       .init(color: pageColor.opacity(0.55), location: 0.78),
+                                       .init(color: pageColor.opacity(0.9), location: 0.93),
+                                       .init(color: pageColor, location: 1)],
                                startPoint: .top, endPoint: .bottom)
+                    .allowsHitTesting(false)
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(artist.name)

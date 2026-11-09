@@ -142,10 +142,20 @@ enum ArtworkColor {
         return Color(hue: c.h, saturation: min(c.s * 1.15, 0.7), brightness: min(max(c.b * 0.6, 0.1), 0.3))
     }
 
-    private static func hsb(of image: UIImage) -> (h: Double, s: Double, b: Double)? {
-        guard let input = CIImage(image: image),
-              let filter = CIFilter(name: "CIAreaAverage",
-                                    parameters: [kCIInputImageKey: input, kCIInputExtentKey: CIVector(cgRect: input.extent)]),
+    /// Fond de page artiste : la couleur du BAS de la photo, assez soutenue (comme Apple Music),
+    /// pour que la photo se fonde dans la page sans démarcation.
+    static func bottomBackground(of image: UIImage) -> Color? {
+        guard let c = hsb(of: image, bottomFraction: 0.3) else { return nil }
+        return Color(hue: c.h, saturation: min(c.s * 1.1, 0.75), brightness: min(max(c.b * 0.85, 0.22), 0.5))
+    }
+
+    private static func hsb(of image: UIImage, bottomFraction: CGFloat = 1) -> (h: Double, s: Double, b: Double)? {
+        guard let input = CIImage(image: image) else { return nil }
+        // (Core Image compte les y depuis le bas : la bande du bas commence à minY.)
+        var area = input.extent
+        area.size.height *= bottomFraction
+        guard let filter = CIFilter(name: "CIAreaAverage",
+                                    parameters: [kCIInputImageKey: input, kCIInputExtentKey: CIVector(cgRect: area)]),
               let output = filter.outputImage else { return nil }
         var px = [UInt8](repeating: 0, count: 4)
         context.render(output, toBitmap: &px, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
