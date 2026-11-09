@@ -538,6 +538,9 @@ struct ArtistDetailView: View {
                 VStack(alignment: .leading, spacing: 26) {
                     hero(artist)
 
+                    // Résumé Wikipédia, juste sous la photo.
+                    ArtistAboutSection(name: artist.name)
+
                     let top = Stats.shared.top(artist.tracks, limit: 5)
                     let topSongs = top.isEmpty ? Array(artist.tracks.prefix(5)) : top
                     if !topSongs.isEmpty {
@@ -560,8 +563,6 @@ struct ArtistDetailView: View {
                     }
 
                     discography(artist)
-
-                    ArtistAboutSection(name: artist.name)
                 }
                 .padding(.bottom, 30)
             }
