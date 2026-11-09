@@ -18,6 +18,9 @@ enum APIError: LocalizedError {
     }
 }
 
+/// Codes renvoyés par la passerelle quand le PC ne répond pas : on les traite comme « hors ligne ».
+private let gatewayDown: Set<Int> = [502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530]
+
 struct APIClient {
     let baseURL: URL
     let token: String
@@ -61,6 +64,7 @@ struct APIClient {
         }
         guard let http = response as? HTTPURLResponse else { throw APIError.unreachable }
         if http.statusCode == 401 { throw APIError.unauthorized }
+        if gatewayDown.contains(http.statusCode) { throw APIError.unreachable }
         guard (200..<300).contains(http.statusCode) else { throw APIError.server(http.statusCode) }
         return data
     }
@@ -124,6 +128,7 @@ struct APIClient {
         }
         guard let http = response as? HTTPURLResponse else { throw APIError.unreachable }
         if http.statusCode == 401 { throw APIError.unauthorized }
+        if gatewayDown.contains(http.statusCode) { throw APIError.unreachable }
         return (data, http.statusCode)
     }
 

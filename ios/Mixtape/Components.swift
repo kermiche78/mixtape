@@ -7,19 +7,65 @@ import UIKit
 actor ImageLoader {
     static let shared = ImageLoader()
     private let memory = NSCache<NSURL, UIImage>()
+    /// Copie des pochettes sur l'iPhone : elles s'affichent même sans réseau.
+    private let folder: URL = {
+        let f = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Pochettes", isDirectory: true)
+        try? FileManager.default.createDirectory(at: f, withIntermediateDirectories: true)
+        return f
+    }()
+
+    /// Nom de fichier stable (sans le mot de passe de l'adresse) : « chemin_version.jpg ».
+    private func diskNames(for url: URL) -> (prefix: String, file: String) {
+        let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let version = comps?.queryItems?.first(where: { $0.name == "v" })?.value ?? "0"
+        let path = url.path.unicodeScalars.reduce(into: UInt64(1469598103934665603)) { h, c in
+            h = (h ^ UInt64(c.value)) &* 1099511628211
+        }
+        let prefix = String(path, radix: 36)
+        return (prefix, "\(prefix)_\(version).jpg")
+    }
 
     func image(for url: URL) async -> UIImage? {
         if let cached = memory.object(forKey: url as NSURL) { return cached }
+        let names = diskNames(for: url)
+        let file = folder.appendingPathComponent(names.file)
+        // 1. Déjà sur l'iPhone, dans la bonne version.
+        if let data = try? Data(contentsOf: file), let img = UIImage(data: data) {
+            memory.setObject(img, forKey: url as NSURL)
+            return img
+        }
+        // 2. Depuis le PC.
         var request = URLRequest(url: url)
         request.cachePolicy = .returnCacheDataElseLoad
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              let full = UIImage(data: data) else { return nil }
-        // Les pochettes du serveur peuvent faire 3000 px : on les réduit et on les décode
-        // ici, hors de l'écran, pour que le défilement reste fluide.
-        let image = await Self.prepared(full)
-        memory.setObject(image, forKey: url as NSURL)
-        return image
+        request.timeoutInterval = 12
+        if let (data, response) = try? await URLSession.shared.data(for: request),
+           (response as? HTTPURLResponse)?.statusCode == 200,
+           let full = UIImage(data: data) {
+            // Les pochettes du serveur peuvent faire 3000 px : on les réduit et on les décode
+            // ici, hors de l'écran, pour que le défilement reste fluide.
+            let image = await Self.prepared(full)
+            memory.setObject(image, forKey: url as NSURL)
+            removeOldVersions(prefix: names.prefix)
+            if let jpeg = image.jpegData(compressionQuality: 0.85) { try? jpeg.write(to: file, options: .atomic) }
+            return image
+        }
+        // 3. Hors ligne : une ancienne version de la pochette vaut mieux que rien.
+        if let old = try? FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .first(where: { $0.hasPrefix(names.prefix + "_") }),
+           let data = try? Data(contentsOf: folder.appendingPathComponent(old)),
+           let img = UIImage(data: data) {
+            memory.setObject(img, forKey: url as NSURL)
+            return img
+        }
+        return nil
+    }
+
+    private func removeOldVersions(prefix: String) {
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        for name in files where name.hasPrefix(prefix + "_") {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+        }
     }
 
     private static func prepared(_ image: UIImage) async -> UIImage {

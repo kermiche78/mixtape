@@ -96,6 +96,8 @@ final class LibraryStore: ObservableObject {
         } catch APIError.unreachable {
             // Serveur éteint : pas d'alerte, on passe en mode hors ligne (sons téléchargés seulement).
             setOffline(true)
+        } catch let error as URLError where error.code == .notConnectedToInternet || error.code == .networkConnectionLost {
+            setOffline(true)
         } catch {
             errorMessage = error.localizedDescription
         }

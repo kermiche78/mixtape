@@ -103,3 +103,26 @@ func formatTotal(_ seconds: Double) -> String {
     let h = minutes / 60, m = minutes % 60
     return m == 0 ? "\(h) h" : "\(h) h \(m) min"
 }
+
+// MARK: - Recherche dans une liste (sans tenir compte des accents ni des majuscules)
+
+private func folded(_ s: String) -> String {
+    s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+}
+
+extension Track {
+    func matchesSearch(_ query: String) -> Bool {
+        let q = folded(query.trimmingCharacters(in: .whitespaces))
+        guard !q.isEmpty else { return true }
+        return folded(title).contains(q) || folded(artist).contains(q) || folded(album).contains(q)
+    }
+}
+
+extension Album {
+    func matchesSearch(_ query: String) -> Bool {
+        let q = folded(query.trimmingCharacters(in: .whitespaces))
+        guard !q.isEmpty else { return true }
+        return folded(name).contains(q) || folded(artist).contains(q)
+            || tracks.contains { folded($0.title).contains(q) }
+    }
+}

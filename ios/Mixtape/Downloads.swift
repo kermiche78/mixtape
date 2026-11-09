@@ -116,6 +116,11 @@ final class DownloadManager: ObservableObject {
         }
         for track in tracks { list.insert(track.id) }
         wanted = list
+        // Garde aussi les pochettes sur l'iPhone, pour les voir sans réseau.
+        let covers = Set(tracks.compactMap { api.coverURL(for: $0) })
+        Task.detached(priority: .utility) {
+            for url in covers { _ = await ImageLoader.shared.image(for: url) }
+        }
         pump()
     }
 

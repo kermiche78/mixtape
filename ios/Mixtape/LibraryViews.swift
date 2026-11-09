@@ -36,7 +36,6 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if library.isOffline { OfflineBanner().padding(.bottom, 8) }
                 ForEach(LibrarySection.allCases) { section in
                     NavigationLink(value: section) {
                         HStack(spacing: 14) {
@@ -113,10 +112,11 @@ struct AlbumsView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @AppStorage("albumSort") private var order: SortOrder = .title
     @AppStorage("albumFilter") private var filter: LibraryFilter = .all
+    @State private var query = ""
     private let columns = [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
 
     private var shown: [Album] {
-        let base = library.albums.filter { $0.matches(filter, stats: stats, downloads: downloads) }
+        let base = library.albums.filter { $0.matches(filter, stats: stats, downloads: downloads) && $0.matchesSearch(query) }
         switch order {
         case .title: return base
         case .artist: return base.sorted {
@@ -134,23 +134,29 @@ struct AlbumsView: View {
     var body: some View {
         let albums = shown
         ScrollView {
+            // Les pastilles font partie de la page (et plus d'une barre posée par-dessus) :
+            // le grand titre « Albums » s'affiche correctement.
+            FilterChips(selection: $filter, options: LibraryFilter.albumOptions)
             LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
                 ForEach(albums) { album in
                     NavigationLink(value: album) { AlbumCell(album: album) }.buttonStyle(.plain)
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .padding(.top, 4)
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            FilterChips(selection: $filter, options: LibraryFilter.albumOptions)
-                .background(.bar)
-        }
+        .searchable(text: $query, prompt: "Rechercher un album ou un artiste")
         .overlay {
             if library.albums.isEmpty {
                 EmptyLibraryView()
             } else if albums.isEmpty {
-                ContentUnavailableView("Aucun album", systemImage: "line.3.horizontal.decrease.circle",
-                                       description: Text("Aucun album ne correspond à « \(filter.rawValue) »."))
+                if query.isEmpty {
+                    ContentUnavailableView("Aucun album", systemImage: "line.3.horizontal.decrease.circle",
+                                           description: Text("Aucun album ne correspond à « \(filter.rawValue) »."))
+                } else {
+                    ContentUnavailableView.search(text: query)
+                }
             }
         }
         .navigationTitle("Albums")
@@ -554,6 +560,8 @@ struct ArtistDetailView: View {
                     }
 
                     discography(artist)
+
+                    ArtistAboutSection(name: artist.name)
                 }
                 .padding(.bottom, 30)
             }
@@ -762,9 +770,10 @@ struct SongsView: View {
     @ObservedObject private var downloads = DownloadManager.shared
     @AppStorage("songSort") private var order: SortOrder = .title
     @AppStorage("songFilter") private var filter: LibraryFilter = .all
+    @State private var query = ""
 
     private var shown: [Track] {
-        let base = library.tracks.filter { $0.matches(filter, stats: stats, downloads: downloads) }
+        let base = library.tracks.filter { $0.matches(filter, stats: stats, downloads: downloads) && $0.matchesSearch(query) }
         switch order {
         case .title: return base.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         case .artist: return base.sorted {
@@ -782,6 +791,9 @@ struct SongsView: View {
     var body: some View {
         let songs = shown
         List {
+            FilterChips(selection: $filter, options: LibraryFilter.songOptions)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
             if !songs.isEmpty {
                 PlayShuffleButtons(play: { player.play(songs) }, shuffle: { player.play(songs, shuffled: true) })
                     .listRowSeparator(.hidden)
@@ -792,16 +804,18 @@ struct SongsView: View {
             }
         }
         .listStyle(.plain)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            FilterChips(selection: $filter, options: LibraryFilter.songOptions)
-                .background(.bar)
-        }
+        .searchable(text: $query, prompt: "Rechercher un son, un artiste, un album")
         .overlay {
             if library.tracks.isEmpty {
                 EmptyLibraryView()
             } else if songs.isEmpty {
-                ContentUnavailableView("Aucun son", systemImage: "line.3.horizontal.decrease.circle",
-                                       description: Text("Aucun son ne correspond à « \(filter.rawValue) »."))
+                if query.isEmpty {
+                    ContentUnavailableView("Aucun son", systemImage: "line.3.horizontal.decrease.circle",
+                                           description: Text("Aucun son ne correspond à « \(filter.rawValue) »."))
+                        .padding(.top, 60)
+                } else {
+                    ContentUnavailableView.search(text: query)
+                }
             }
         }
         .navigationTitle("Morceaux")

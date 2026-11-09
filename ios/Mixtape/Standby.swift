@@ -168,6 +168,39 @@ struct StandbyView: View {
     }
 }
 
+// MARK: - Logo « Hors ligne »
+
+/// Petite pastille en haut de l'écran quand le PC est injoignable. La toucher relance la connexion.
+struct OfflinePill: View {
+    @EnvironmentObject private var library: LibraryStore
+
+    var body: some View {
+        if library.isOffline {
+            Button {
+                Task { await library.refresh() }
+            } label: {
+                HStack(spacing: 5) {
+                    if library.isLoading {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "wifi.slash")
+                    }
+                    Text("Hors ligne")
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.accentPink.opacity(0.9), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Hors ligne : seuls tes sons téléchargés sont affichés. Toucher pour réessayer.")
+            .padding(.top, 2)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+}
+
 // MARK: - Bandeau « Hors ligne »
 
 struct OfflineBanner: View {
@@ -263,7 +296,7 @@ extension Album {
         switch filter {
         case .all: return true
         case .unplayed: return tracks.allSatisfy { stats.plays($0) == 0 }
-        case .favorites: return tracks.contains { stats.isFavorite($0) }
+        case .favorites: return stats.isFavorite(self)
         case .downloaded: return tracks.contains { downloads.isDownloaded($0) }
         case .albums: return kindLabel == "Album"
         case .eps: return kindLabel == "EP"

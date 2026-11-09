@@ -33,8 +33,50 @@ final class Stats: ObservableObject {
     func isFavorite(_ track: Track) -> Bool { favorites.contains(track.id) }
 
     func toggleFavorite(_ track: Track) {
-        if favorites.contains(track.id) { favorites.remove(track.id) } else { favorites.insert(track.id) }
+        if favorites.contains(track.id) {
+            favorites.remove(track.id)
+            favoritesOrder.removeAll { $0 == track.id }
+        } else {
+            favorites.insert(track.id)
+            favoritesOrder.removeAll { $0 == track.id }
+            favoritesOrder.insert(track.id, at: 0)
+        }
+        saveFavorites()
+    }
+
+    // MARK: Ordre de la playlist « Favoris » (le dernier liké en premier, modifiable)
+
+    /// Ordre choisi dans « Favoris » → Modifier. Les anciens favoris sans ordre viennent après, par titre.
+    @Published private(set) var favoritesOrder: [String] = UserDefaults.standard.stringArray(forKey: "favoritesOrder") ?? []
+
+    func orderedFavorites(in tracks: [Track]) -> [Track] {
+        let favs = tracks.filter { favorites.contains($0.id) }
+        let rank = Dictionary(favoritesOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        return favs.sorted { a, b in
+            switch (rank[a.id], rank[b.id]) {
+            case let (x?, y?): return x < y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+            }
+        }
+    }
+
+    /// Nouvel ordre après un glisser-déposer dans « Modifier ».
+    func setFavoritesOrder(_ ids: [String]) {
+        favoritesOrder = ids
+        saveFavorites()
+    }
+
+    func removeFavorites(_ ids: [String]) {
+        favorites.subtract(ids)
+        favoritesOrder.removeAll { ids.contains($0) }
+        saveFavorites()
+    }
+
+    private func saveFavorites() {
         UserDefaults.standard.set(Array(favorites), forKey: "favorites")
+        UserDefaults.standard.set(favoritesOrder, forKey: "favoritesOrder")
     }
 
     func isFavorite(_ album: Album) -> Bool { favoriteAlbums.contains(album.id) }
@@ -84,6 +126,7 @@ final class Stats: ObservableObject {
         let d = UserDefaults.standard
         favorites = Set(d.stringArray(forKey: "favorites") ?? [])
         favoriteAlbums = Set(d.stringArray(forKey: "favoriteAlbums") ?? [])
+        favoritesOrder = d.stringArray(forKey: "favoritesOrder") ?? []
         playCounts = d.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         if let data = d.data(forKey: "playHistory"), let saved = try? JSONDecoder().decode([PlayEvent].self, from: data) {
             history = saved
@@ -150,34 +193,67 @@ struct FavoritesView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerModel
     @ObservedObject private var stats = Stats.shared
+    @State private var editMode: EditMode = .inactive
+    @State private var query = ""
+    @State private var selection = Set<String>()
+
+    private var editing: Bool { editMode.isEditing }
 
     var body: some View {
-        let list = library.tracks.filter { stats.isFavorite($0) }
-            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        List {
-            if !list.isEmpty {
+        let all = stats.orderedFavorites(in: library.tracks)
+        let list = query.isEmpty ? all : all.filter { $0.matchesSearch(query) }
+        List(selection: $selection) {
+            if !list.isEmpty && !editing {
                 PlayShuffleButtons(play: { player.play(list) }, shuffle: { player.play(list, shuffled: true) })
                     .listRowSeparator(.hidden)
             }
             ForEach(Array(list.enumerated()), id: \.element.id) { i, track in
                 TrackRow(track: track)
-                    .onTapGesture { player.play(list, startAt: i) }
+                    .contentShape(Rectangle())
+                    .onTapGesture { if !editing { player.play(list, startAt: i) } }
+                    .tag(track.id)
+            }
+            .onDelete { offsets in
+                stats.removeFavorites(offsets.map { list[$0].id })
+            }
+            .onMove { from, to in
+                // Le déplacement n'a de sens que sur la liste complète (sans recherche).
+                guard query.isEmpty else { return }
+                var ids = all.map(\.id)
+                ids.move(fromOffsets: from, toOffset: to)
+                stats.setFavoritesOrder(ids)
             }
         }
         .listStyle(.plain)
+        .environment(\.editMode, $editMode)
+        .searchable(text: $query, prompt: "Rechercher dans tes favoris")
         .overlay {
-            if list.isEmpty {
+            if all.isEmpty {
                 ContentUnavailableView {
                     Label("Aucun favori", systemImage: "heart")
                 } description: {
                     Text("Touche le cœur dans le lecteur, ou « … » sur un son, pour l'ajouter ici.")
                 }
+            } else if list.isEmpty {
+                ContentUnavailableView.search(text: query)
             }
         }
         .navigationTitle("Favoris")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if !list.isEmpty { DownloadAllButton(tracks: list) }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if editing {
+                    if !selection.isEmpty {
+                        Button(role: .destructive) {
+                            stats.removeFavorites(Array(selection))
+                            selection = []
+                        } label: { Text("Retirer (\(selection.count))") }
+                    }
+                    Button("OK") { withAnimation { editMode = .inactive; selection = [] } }
+                        .fontWeight(.semibold)
+                } else if !all.isEmpty {
+                    DownloadAllButton(tracks: all)
+                    Button("Modifier") { withAnimation { editMode = .active } }
+                }
             }
         }
     }

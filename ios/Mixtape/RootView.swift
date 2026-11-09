@@ -33,6 +33,8 @@ struct MainTabs: View {
             .id(accent)
             .environment(\.zoomNamespace, zoomNamespace)
             .overlay(alignment: .top) { SharePreparingBanner() }
+            // Petit logo « hors ligne » tout en haut, à la place du gros bandeau.
+            .overlay(alignment: .top) { OfflinePill() }
             // Mode veille : iPhone à l'horizontale et en charge.
             .overlay {
                 if standby.isActive {
@@ -60,7 +62,7 @@ struct MainTabs: View {
             .sheet(isPresented: $player.showNowPlaying) {
                 NowPlayingView()
             }
-            .alert("Oups", isPresented: Binding(get: { library.errorMessage != nil },
+            .alert("Oups", isPresented: Binding(get: { library.errorMessage != nil && !library.isOffline },
                                                  set: { if !$0 { library.errorMessage = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
