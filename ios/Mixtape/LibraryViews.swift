@@ -567,6 +567,8 @@ struct ArtistDetailView: View {
                 .padding(.bottom, 30)
             }
             .coordinateSpace(name: "artistScroll")
+            // Va chercher le résumé Wikipédia dès que la page s'ouvre.
+            .task(id: artist.name) { await ArtistBios.shared.load(artist.name) }
             .onPreferenceChange(HeaderOffsetKey.self) { y in
                 let c = y < -(heroHeight - 110)
                 if c != collapsed { withAnimation(.easeInOut(duration: 0.2)) { collapsed = c } }

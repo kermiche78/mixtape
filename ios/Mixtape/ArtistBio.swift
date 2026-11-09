@@ -1,8 +1,11 @@
 import Foundation
 import SwiftUI
 
-/// Petit résumé de chaque artiste, pris sur Wikipédia (en français, sinon en anglais).
-/// Gardé sur l'iPhone : il s'affiche aussi hors ligne, et Wikipédia n'est interrogé qu'une fois.
+/// Petit résumé de chaque artiste. On identifie d'abord l'artiste avec précision
+/// (MusicBrainz, la base de données de référence de la musique, reliée à Wikidata),
+/// puis on prend le résumé de SA page Wikipédia en français. Sinon : la biographie de
+/// TheAudioDB, puis Wikipédia en anglais, puis une recherche par nom en dernier recours.
+/// Gardé sur l'iPhone : il s'affiche aussi hors ligne, et n'est cherché qu'une fois.
 @MainActor
 final class ArtistBios: ObservableObject {
     static let shared = ArtistBios()
@@ -12,13 +15,15 @@ final class ArtistBios: ObservableObject {
         var url: String?
         var lang: String
         var fetched: Double
+        var source: String?     // « Wikipédia », « TheAudioDB »…
     }
 
     @Published private(set) var bios: [String: Bio] = [:]
     private var loading: Set<String> = []
-    private let key = "artistBios"
+    private let key = "artistBios2"
 
     private init() {
+        UserDefaults.standard.removeObject(forKey: "artistBios")   // ancienne méthode, moins précise
         if let data = UserDefaults.standard.data(forKey: key),
            let saved = try? JSONDecoder().decode([String: Bio].self, from: data) {
             bios = saved
@@ -37,16 +42,131 @@ final class ArtistBios: ObservableObject {
         guard !loading.contains(id) else { return }
         loading.insert(id)
         defer { loading.remove(id) }
-        guard let found = await Self.find(name) else {
-            // Réseau coupé : on ne note rien, on réessaiera.
-            return
-        }
+        guard let found = await Self.find(name) else { return }   // pas de réseau : on réessaiera
         bios[id] = found
         if let data = try? JSONEncoder().encode(bios) { UserDefaults.standard.set(data, forKey: key) }
     }
 
-    // MARK: Recherche sur Wikipédia
+    // MARK: Recherche
 
+    /// nil = rien n'a répondu (pas de réseau) ; Bio avec texte vide = rien trouvé.
+    private static func find(_ name: String) async -> Bio? {
+        var reachable = false
+        let now = Date().timeIntervalSince1970
+
+        // 1. TheAudioDB : biographie écrite pour la musique (et souvent l'identifiant MusicBrainz).
+        let audio = await audioDB(name)
+        if audio != nil { reachable = true }
+
+        // 2. L'identifiant exact de l'artiste (MusicBrainz), puis sa fiche Wikidata.
+        var mbid = audio?.mbid
+        if mbid == nil, let found = await musicBrainzSearch(name) { reachable = true; mbid = found }
+        var links: [String: String] = [:]
+        if let mbid, let qid = await wikidataID(mbid: mbid) {
+            reachable = true
+            links = await wikipediaTitles(qid: qid)
+        }
+
+        // 3. Dans l'ordre : Wikipédia FR de cet artiste précis, TheAudioDB FR,
+        //    Wikipédia EN de cet artiste, TheAudioDB EN.
+        if let title = links["fr"], case .found(let s) = await summary(lang: "fr", title: title), let bio = clean(s, lang: "fr") {
+            return bio
+        }
+        if let fr = audio?.fr { return Bio(text: fr, url: audio?.page, lang: "fr", fetched: now, source: "TheAudioDB") }
+        if let title = links["en"], case .found(let s) = await summary(lang: "en", title: title), let bio = clean(s, lang: "en") {
+            return bio
+        }
+        if let en = audio?.en { return Bio(text: en, url: audio?.page, lang: "en", fetched: now, source: "TheAudioDB") }
+
+        // 4. Dernier recours : deviner la page Wikipédia par le nom.
+        switch await guessWikipedia(name) {
+        case .some(let bio?): return bio
+        case .some(nil): reachable = true
+        case nil: break
+        }
+        return reachable ? Bio(text: "", url: nil, lang: "", fetched: now, source: nil) : nil
+    }
+
+    private static func fold(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func request(_ url: URL) -> URLRequest {
+        var r = URLRequest(url: url)
+        r.timeoutInterval = 10
+        // MusicBrainz et Wikipédia demandent qu'on se présente.
+        r.setValue("Mixtape/1.0 (lecteur de musique perso pour iPhone)", forHTTPHeaderField: "User-Agent")
+        r.setValue("Mixtape/1.0 (lecteur de musique perso pour iPhone)", forHTTPHeaderField: "Api-User-Agent")
+        return r
+    }
+
+    private static func json(_ url: URL?) async -> [String: Any]? {
+        guard let url,
+              let (data, response) = try? await URLSession.shared.data(for: request(url)),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func q(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?#"))) ?? s
+    }
+
+    // TheAudioDB (clé publique gratuite « 123 »)
+    private struct AudioDBResult { var fr: String?; var en: String?; var mbid: String?; var page: String? }
+
+    private static func audioDB(_ name: String) async -> AudioDBResult? {
+        guard let obj = await json(URL(string: "https://www.theaudiodb.com/api/v1/json/123/search.php?s=\(q(name))")) else { return nil }
+        let artists = obj["artists"] as? [[String: Any]] ?? []
+        guard let a = artists.first(where: { fold($0["strArtist"] as? String ?? "") == fold(name) }) else {
+            return AudioDBResult()
+        }
+        func text(_ k: String) -> String? {
+            let t = (a[k] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.count > 40 ? t : nil
+        }
+        let mbid = (a["strMusicBrainzID"] as? String).flatMap { $0.count == 36 ? $0 : nil }
+        let page = (a["idArtist"] as? String).map { "https://www.theaudiodb.com/artist/\($0)" }
+        return AudioDBResult(fr: text("strBiographyFR"), en: text("strBiographyEN"), mbid: mbid, page: page)
+    }
+
+    // MusicBrainz : l'artiste dont le nom est exactement celui-là, avec le meilleur score.
+    private static func musicBrainzSearch(_ name: String) async -> String? {
+        let query = "artist:\"\(name.replacingOccurrences(of: "\"", with: ""))\""
+        guard let obj = await json(URL(string: "https://musicbrainz.org/ws/2/artist/?fmt=json&limit=5&query=\(q(query))")),
+              let artists = obj["artists"] as? [[String: Any]] else { return nil }
+        let exact = artists.filter { a in
+            let names = [a["name"] as? String, a["sort-name"] as? String].compactMap { $0 }
+                + ((a["aliases"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? [])
+            return names.contains { fold($0) == fold(name) } && (a["score"] as? Int ?? 0) >= 90
+        }
+        return exact.first?["id"] as? String
+    }
+
+    private static func wikidataID(mbid: String) async -> String? {
+        guard let obj = await json(URL(string: "https://musicbrainz.org/ws/2/artist/\(mbid)?inc=url-rels&fmt=json")),
+              let rels = obj["relations"] as? [[String: Any]] else { return nil }
+        for r in rels where (r["type"] as? String) == "wikidata" {
+            if let res = (r["url"] as? [String: Any])?["resource"] as? String, let qid = res.split(separator: "/").last {
+                return String(qid)
+            }
+        }
+        return nil
+    }
+
+    private static func wikipediaTitles(qid: String) async -> [String: String] {
+        guard let obj = await json(URL(string: "https://www.wikidata.org/wiki/Special:EntityData/\(qid).json")),
+              let entities = obj["entities"] as? [String: Any],
+              let entity = entities.values.first as? [String: Any],
+              let sitelinks = entity["sitelinks"] as? [String: Any] else { return [:] }
+        var out: [String: String] = [:]
+        for lang in ["fr", "en"] {
+            if let title = (sitelinks["\(lang)wiki"] as? [String: Any])?["title"] as? String { out[lang] = title }
+        }
+        return out
+    }
+
+    // Wikipédia
     private struct Summary: Decodable {
         struct Links: Decodable { struct Page: Decodable { let page: String? }; let mobile: Page?; let desktop: Page? }
         let type: String?
@@ -56,65 +176,7 @@ final class ArtistBios: ObservableObject {
         let content_urls: Links?
     }
 
-    /// Mots qui montrent que la page parle bien d'un artiste de musique (et pas d'un mot courant).
-    private static let musicWords = [
-        "rappeur", "rappeuse", "chanteur", "chanteuse", "musicien", "musicienne", "groupe", "producteur", "productrice",
-        "compositeur", "beatmaker", "disc jockey", " dj ", " rap ", "hip-hop", "hip hop", "drill",
-        "rapper", "singer", "musician", " band", "record producer", "songwriter", "album", "mixtape", "label",
-    ]
-
-    /// nil = Wikipédia injoignable ; Bio avec texte vide = rien trouvé.
-    private static func find(_ name: String) async -> Bio? {
-        var reachable = false
-        let tries: [(lang: String, titles: [String], hint: String)] = [
-            ("fr", ["\(name) (rappeur)", "\(name) (rappeuse)", "\(name) (chanteur)", "\(name) (chanteuse)",
-                    "\(name) (musicien)", "\(name) (groupe)", "\(name) (artiste)", name], "rappeur"),
-            ("en", ["\(name) (rapper)", "\(name) (musician)", "\(name) (singer)", "\(name) (band)", name], "rapper"),
-        ]
-        for t in tries {
-            for title in t.titles {
-                switch await summary(lang: t.lang, title: title) {
-                case .unreachable: continue
-                case .missing: reachable = true
-                case .found(let s):
-                    reachable = true
-                    if let bio = accept(s, name: name, lang: t.lang) { return bio }
-                }
-            }
-            // Dernière chance : la recherche de Wikipédia (« Nom rappeur »).
-            if let titles = await search(lang: t.lang, query: "\(name) \(t.hint)") {
-                reachable = true
-                for title in titles.prefix(3) {
-                    if case .found(let s) = await summary(lang: t.lang, title: title),
-                       let bio = accept(s, name: name, lang: t.lang) { return bio }
-                }
-            }
-        }
-        return reachable ? Bio(text: "", url: nil, lang: "", fetched: Date().timeIntervalSince1970) : nil
-    }
-
-    private static func fold(_ s: String) -> String {
-        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-    }
-
-    private static func accept(_ s: Summary, name: String, lang: String) -> Bio? {
-        guard s.type != "disambiguation", let extract = s.extract, extract.count > 40 else { return nil }
-        // Le titre doit commencer par le nom de l'artiste (« Future (rappeur) » oui, « Futur » non).
-        guard let title = s.title, fold(title).hasPrefix(fold(name)) else { return nil }
-        let about = " " + fold((s.description ?? "") + " " + extract.prefix(300)) + " "
-        guard musicWords.contains(where: { about.contains($0) }) else { return nil }
-        return Bio(text: extract, url: s.content_urls?.mobile?.page ?? s.content_urls?.desktop?.page,
-                   lang: lang, fetched: Date().timeIntervalSince1970)
-    }
-
     private enum Result { case found(Summary), missing, unreachable }
-
-    private static func request(_ url: URL) -> URLRequest {
-        var r = URLRequest(url: url)
-        r.timeoutInterval = 10
-        r.setValue("Mixtape/1.0 (lecteur de musique perso)", forHTTPHeaderField: "Api-User-Agent")
-        return r
-    }
 
     private static func summary(lang: String, title: String) async -> Result {
         let path = title.replacingOccurrences(of: " ", with: "_")
@@ -126,19 +188,41 @@ final class ArtistBios: ObservableObject {
         return .found(s)
     }
 
-    private static func search(lang: String, query: String) async -> [String]? {
-        var c = URLComponents(string: "https://\(lang).wikipedia.org/w/api.php")!
-        c.queryItems = [
-            URLQueryItem(name: "action", value: "query"), URLQueryItem(name: "list", value: "search"),
-            URLQueryItem(name: "format", value: "json"), URLQueryItem(name: "srlimit", value: "3"),
-            URLQueryItem(name: "srsearch", value: query),
+    private static func clean(_ s: Summary, lang: String) -> Bio? {
+        guard s.type != "disambiguation", let extract = s.extract, extract.count > 40 else { return nil }
+        return Bio(text: extract, url: s.content_urls?.mobile?.page ?? s.content_urls?.desktop?.page,
+                   lang: lang, fetched: Date().timeIntervalSince1970, source: "Wikipédia")
+    }
+
+    /// Mots qui montrent que la page parle bien d'un artiste de musique (et pas d'un mot courant).
+    private static let musicWords = [
+        "rappeur", "rappeuse", "chanteur", "chanteuse", "musicien", "musicienne", "groupe", "producteur", "productrice",
+        "compositeur", "beatmaker", "disc jockey", " dj ", " rap ", "hip-hop", "hip hop", "drill",
+        "rapper", "singer", "musician", " band", "record producer", "songwriter", "album", "mixtape", "label",
+    ]
+
+    /// nil = Wikipédia injoignable ; .some(nil) = rien trouvé.
+    private static func guessWikipedia(_ name: String) async -> Bio?? {
+        var reachable = false
+        let tries: [(lang: String, titles: [String])] = [
+            ("fr", ["\(name) (rappeur)", "\(name) (rappeuse)", "\(name) (chanteur)", "\(name) (chanteuse)",
+                    "\(name) (musicien)", "\(name) (groupe)", name]),
+            ("en", ["\(name) (rapper)", "\(name) (musician)", "\(name) (singer)", "\(name) (band)", name]),
         ]
-        guard let url = c.url,
-              let (data, _) = try? await URLSession.shared.data(for: request(url)),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let q = obj["query"] as? [String: Any],
-              let results = q["search"] as? [[String: Any]] else { return nil }
-        return results.compactMap { $0["title"] as? String }
+        for t in tries {
+            for title in t.titles {
+                switch await summary(lang: t.lang, title: title) {
+                case .unreachable: continue
+                case .missing: reachable = true
+                case .found(let s):
+                    reachable = true
+                    guard let bio = clean(s, lang: t.lang), let found = s.title, fold(found).hasPrefix(fold(name)) else { continue }
+                    let about = " " + fold((s.description ?? "") + " " + bio.text.prefix(300)) + " "
+                    if musicWords.contains(where: { about.contains($0) }) { return .some(bio) }
+                }
+            }
+        }
+        return reachable ? .some(nil) : nil
     }
 }
 
@@ -148,14 +232,16 @@ struct ArtistAboutSection: View {
     let name: String
 
     var body: some View {
-        Group {
+        // Toujours au moins une vue (même vide) : sinon SwiftUI ne lance jamais la recherche.
+        VStack(alignment: .leading, spacing: 0) {
+            Color.clear.frame(height: 0)
             if let bio = bios.bio(for: name) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("À propos").font(.title3.bold())
                     AlbumDescription(title: name, text: bio.text)
                     if let link = bio.url, let url = URL(string: link) {
                         Link(destination: url) {
-                            Text(bio.lang == "fr" ? "Source : Wikipédia" : "Source : Wikipédia (en anglais)")
+                            Text("Source : \(bio.source ?? "Wikipédia")\(bio.lang == "en" ? " (en anglais)" : "")")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
@@ -164,6 +250,7 @@ struct ArtistAboutSection: View {
                 .padding(.horizontal, 20)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: name) { await bios.load(name) }
     }
 }
