@@ -18,6 +18,8 @@ struct MixtapeApp: App {
                 .environmentObject(player)
                 .onAppear {
                     player.library = library
+                    AppObjects.shared.library = library
+                    AppObjects.shared.player = player
                     SmartPlaylistStore.shared.attach(library)
                     player.restoreSession()
                 }

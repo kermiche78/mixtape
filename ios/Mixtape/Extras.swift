@@ -446,6 +446,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    /// Écran télé : quand iOS ouvre une fenêtre pour la télé (recopie AirPlay), on y met l'écran Mixtape.
+    func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        if connectingSceneSession.role == .windowExternalDisplayNonInteractive {
+            let config = UISceneConfiguration(name: "Télé", sessionRole: connectingSceneSession.role)
+            config.delegateClass = TVSceneDelegate.self
+            return config
+        }
+        // Fenêtre normale de l'iPhone : réglage par défaut (géré par SwiftUI).
+        return connectingSceneSession.configuration
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         Self.orientationLock
     }
