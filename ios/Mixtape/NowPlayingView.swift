@@ -148,6 +148,7 @@ struct NowPlayingView: View {
                         TrackMenu(track: track, nowPlaying: true,
                                   onAnnotate: { annotating = true },
                                   onParty: { showParty = true })
+                            .menuOrder(.fixed)
                             .tint(.white)
                             .frame(width: 34, height: 34)
                             .liquidGlass(in: Circle(), interactive: true)
@@ -361,10 +362,6 @@ struct Scrubber: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.18))
-                    // Partie déjà chargée (gris clair), qui avance pendant le chargement.
-                    Capsule().fill(.white.opacity(0.38))
-                        .frame(width: geo.size.width * min(max(buffered / total, 0), 1))
-                        .animation(.linear(duration: 0.5), value: buffered)
                     Capsule().fill(.white.opacity(dragValue == nil ? 0.75 : 1))
                         .frame(width: geo.size.width * progress)
                     ForEach(Array(markers.enumerated()), id: \.offset) { _, m in
@@ -432,6 +429,11 @@ private struct QueuePanel: View {
                 }
             }
             .padding(.top, 6)
+            if !player.upNext.isEmpty {
+                Text("Maintiens un son pour le déplacer, balaie-le vers la gauche pour le retirer.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
 
             if player.upNext.isEmpty {
                 Text("Rien à suivre")
@@ -462,7 +464,8 @@ private struct QueuePanel: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .environment(\.editMode, .constant(.active))
+                // Plus de mode « modifier » permanent : on maintient un son pour le déplacer,
+                // on le balaie vers la gauche pour le retirer (comme Apple Music).
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
