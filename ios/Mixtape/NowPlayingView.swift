@@ -59,13 +59,6 @@ struct NowPlayingView: View {
                                 .accessibilityLabel("Traduction en français")
                         }
                     }
-                    LyricsPill(title: "Paroles", on: showLyrics,
-                               dimmed: track.map { lyricsStore.isMissing($0.id) } ?? true) {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                            showLyrics.toggle()
-                            if showLyrics { showQueue = false }
-                        }
-                    }
                 }
                 .padding(.bottom, showLyrics ? 4 : 10)
 
@@ -149,21 +142,14 @@ struct NowPlayingView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if let track {
-                        Button { annotating = true } label: {
-                            Image(systemName: "text.bubble")
-                                .font(.system(size: 17, weight: .semibold))
-                                .frame(width: 36, height: 36)
-                        }
-                        .buttonStyle(.plain)
-                        .liquidGlass(in: Circle(), interactive: true)
-                        .accessibilityLabel("Annoter ce passage")
-                        .sheet(isPresented: $annotating) { AnnotationEditor(track: track, start: player.currentTime) }
-                        FavoriteButton(track: track, size: 20)
-                            .frame(width: 36, height: 36)
+                        FavoriteButton(track: track, size: 17)
+                            .frame(width: 34, height: 34)
                             .liquidGlass(in: Circle(), interactive: true)
-                        TrackMenu(track: track)
+                        TrackMenu(track: track, nowPlaying: true,
+                                  onAnnotate: { annotating = true },
+                                  onParty: { showParty = true })
                             .tint(.white)
-                            .frame(width: 36, height: 36)
+                            .frame(width: 34, height: 34)
                             .liquidGlass(in: Circle(), interactive: true)
                     }
                 }
@@ -197,34 +183,35 @@ struct NowPlayingView: View {
                 .padding(.vertical, 12)
 
                 if !showLyrics {
-                VolumeSlider()
-                    .frame(height: 34)
+                    VolumeSlider()
+                        .frame(height: 34)
+                }
 
-                // Rangée du bas : aléatoire, AirPlay, minuterie, file d'attente, répétition
-                GlassGroup(spacing: 16) {
-                    HStack {
-                        toggleButton("shuffle", on: player.shuffle) { player.toggleShuffle() }
-                        Spacer(minLength: 0)
-                        AirPlayButton()
-                            .frame(width: 28, height: 28)
-                            .frame(width: 44, height: 44)
-                            .liquidGlass(in: Circle())
-                        Spacer(minLength: 0)
-                        SleepTimerButton()
-                        Spacer(minLength: 0)
-                        toggleButton("person.2.wave.2", on: party.isActive) { showParty = true }
-                            .accessibilityLabel("Écouter avec quelqu'un")
-                        Spacer(minLength: 0)
-                        toggleButton("list.bullet", on: showQueue) {
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { showQueue.toggle() }
+                // Façon Apple Music : trois icônes discrètes en bas, rien de plus.
+                HStack {
+                    bottomIcon("quote.bubble", label: "Paroles", on: showLyrics,
+                               dimmed: track.map { lyricsStore.isMissing($0.id) } ?? true) {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            showLyrics.toggle()
+                            if showLyrics { showQueue = false }
                         }
-                        Spacer(minLength: 0)
-                        toggleButton(player.repeatMode.icon, on: player.repeatMode != .off) { player.cycleRepeat() }
                     }
+                    .frame(maxWidth: .infinity)
+                    AirPlayButton()
+                        .frame(width: 30, height: 30)
+                        .frame(width: 48, height: 44)
+                        .accessibilityLabel("AirPlay")
+                        .frame(maxWidth: .infinity)
+                    bottomIcon("list.bullet", label: "File d'attente", on: showQueue) {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            showQueue.toggle()
+                            if showQueue { showLyrics = false }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.top, 12)
+                .padding(.top, 14)
                 .padding(.bottom, 6)
-                }
             }
             .padding(.horizontal, 28)
             .frame(width: geo.size.width, height: geo.size.height)
@@ -236,6 +223,9 @@ struct NowPlayingView: View {
         .presentationDragIndicator(.hidden)
         .onChange(of: player.current == nil) { _, isEmpty in if isEmpty { dismiss() } }
         .sheet(isPresented: $showParty) { PartySheet() }
+        .sheet(isPresented: $annotating) {
+            if let track = player.current { AnnotationEditor(track: track, start: player.currentTime) }
+        }
         .fullScreenCover(isPresented: $showClipFullScreen) { ClipFullScreen() }
         .task(id: track?.id) {
             if let track { await lyricsStore.load(track, api: library.api) }
@@ -267,6 +257,22 @@ struct NowPlayingView: View {
         }
         .buttonStyle(PressableStyle())
         .sensoryFeedback(.impact(weight: .light), trigger: player.current?.id)
+    }
+
+    /// Icône du bas : discrète, sur fond blanc quand elle est active (comme Apple Music).
+    private func bottomIcon(_ icon: String, label: String, on: Bool, dimmed: Bool = false,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(on ? Color.black.opacity(0.8) : .white.opacity(dimmed ? 0.35 : 0.75))
+                .frame(width: 48, height: 40)
+                .background(on ? Color.white.opacity(0.85) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .sensoryFeedback(.selection, trigger: on)
+        .accessibilityLabel(label)
     }
 
     private func toggleButton(_ icon: String, on: Bool, action: @escaping () -> Void) -> some View {
@@ -414,9 +420,11 @@ private struct QueuePanel: View {
                     Spacer(minLength: 0)
                 }
             }
-            HStack {
+            HStack(spacing: 10) {
                 Text("À suivre").font(.headline)
                 Spacer()
+                queueToggle("shuffle", label: "Aléatoire", on: player.shuffle) { player.toggleShuffle() }
+                queueToggle(player.repeatMode.icon, label: "Répéter", on: player.repeatMode != .off) { player.cycleRepeat() }
                 if !player.upNext.isEmpty {
                     Button("Effacer") { withAnimation { player.clearUpNext() } }
                         .font(.subheadline.weight(.semibold))
@@ -458,6 +466,20 @@ private struct QueuePanel: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func queueToggle(_ icon: String, label: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(on ? Color.black.opacity(0.8) : .white.opacity(0.8))
+                .frame(width: 40, height: 32)
+                .background(on ? Color.white.opacity(0.85) : Color.white.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .sensoryFeedback(.selection, trigger: on)
+        .accessibilityLabel(label)
     }
 }
 

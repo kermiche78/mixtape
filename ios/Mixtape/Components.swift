@@ -265,6 +265,10 @@ struct TrackMenu: View {
     @EnvironmentObject private var player: PlayerModel
     let track: Track
     var playlistContext: Playlist? = nil
+    /// Menu « … » du lecteur plein écran : ajoute annoter, minuterie et écoute à plusieurs.
+    var nowPlaying = false
+    var onAnnotate: (() -> Void)? = nil
+    var onParty: (() -> Void)? = nil
 
     @ObservedObject private var downloads = DownloadManager.shared
     @ObservedObject private var stats = Stats.shared
@@ -276,74 +280,119 @@ struct TrackMenu: View {
 
     var body: some View {
         Menu {
-            Button { stats.toggleFavorite(track) } label: {
-                stats.isFavorite(track)
-                    ? Label("Retirer des favoris", systemImage: "heart.slash")
-                    : Label("Ajouter aux favoris", systemImage: "heart")
+            // Rangé en petits blocs, comme Apple Music.
+            Section {
+                Button { player.playNext(track) } label: { Label("Lire ensuite", systemImage: "text.line.first.and.arrowtriangle.forward") }
+                Button { player.addToQueue(track) } label: { Label("Lire en dernier", systemImage: "text.line.last.and.arrowtriangle.forward") }
+                Menu {
+                    Button {
+                        Task { await library.createPlaylist(name: track.title, trackIds: [track.id]) }
+                    } label: { Label("Nouvelle playlist", systemImage: "plus") }
+                    ForEach(library.playlists) { p in
+                        Button(p.name) { Task { await library.add(track, to: p) } }
+                    }
+                } label: { Label("Ajouter à une playlist", systemImage: "text.badge.plus") }
             }
-            if downloads.isDownloaded(track) {
-                Button(role: .destructive) { downloads.remove([track]) } label: {
-                    Label("Supprimer le téléchargement", systemImage: "trash")
+            Section {
+                Button { player.navRequest = .album(track.albumKey) } label: {
+                    Label(track.albumKey.hasPrefix("single:") ? "Aller au single" : "Aller à l'album", systemImage: "square.stack")
                 }
-            } else {
-                Button { downloads.download([track], api: library.api) } label: {
-                    Label("Télécharger", systemImage: "arrow.down.circle")
+                Button { player.navRequest = .artist(library.album(for: track)?.artist ?? track.artist) } label: {
+                    Label("Aller à l'artiste", systemImage: "music.mic")
+                }
+                if library.albumCredits[track.albumKey] != nil {
+                    Button { showCredits = true } label: { Label("Crédits", systemImage: "person.2") }
                 }
             }
-            Button { player.playNext(track) } label: { Label("Lire ensuite", systemImage: "text.line.first.and.arrowtriangle.forward") }
-            Button { player.addToQueue(track) } label: { Label("Lire en dernier", systemImage: "text.line.last.and.arrowtriangle.forward") }
-            Button { ShareManager.shared.share(track, api: library.api) } label: {
-                Label("Partager le son", systemImage: "square.and.arrow.up")
-            }
-            Button { ShareManager.shared.shareListenLink(track, api: library.api) } label: {
-                Label("Lien d'écoute (24 h)", systemImage: "link")
-            }
-            Button { showStory = true } label: {
-                Label("Carte pour story", systemImage: "rectangle.portrait.on.rectangle.portrait")
-            }
-            Menu {
-                Button {
-                    Task { await library.createPlaylist(name: track.title, trackIds: [track.id]) }
-                } label: { Label("Nouvelle playlist", systemImage: "plus") }
-                ForEach(library.playlists) { p in
-                    Button(p.name) { Task { await library.add(track, to: p) } }
+            Section {
+                Menu {
+                    Button { ShareManager.shared.share(track, api: library.api) } label: {
+                        Label("Partager le son", systemImage: "square.and.arrow.up")
+                    }
+                    Button { ShareManager.shared.shareListenLink(track, api: library.api) } label: {
+                        Label("Lien d'écoute (24 h)", systemImage: "link")
+                    }
+                    Button { showStory = true } label: {
+                        Label("Carte pour story", systemImage: "rectangle.portrait.on.rectangle.portrait")
+                    }
+                } label: { Label("Partager", systemImage: "square.and.arrow.up") }
+                if downloads.isDownloaded(track) {
+                    Button(role: .destructive) { downloads.remove([track]) } label: {
+                        Label("Supprimer le téléchargement", systemImage: "trash")
+                    }
+                } else {
+                    Button { downloads.download([track], api: library.api) } label: {
+                        Label("Télécharger", systemImage: "arrow.down.circle")
+                    }
                 }
-            } label: { Label("Ajouter à une playlist", systemImage: "text.badge.plus") }
-            Divider()
-            Button { player.navRequest = .album(track.albumKey) } label: {
-                Label(track.albumKey.hasPrefix("single:") ? "Aller au single" : "Aller à l'album", systemImage: "square.stack")
+                if !nowPlaying {
+                    // (Dans le lecteur, le cœur est déjà à côté du titre.)
+                    Button { stats.toggleFavorite(track) } label: {
+                        stats.isFavorite(track)
+                            ? Label("Retirer des favoris", systemImage: "heart.slash")
+                            : Label("Ajouter aux favoris", systemImage: "heart")
+                    }
+                }
             }
-            Button { player.navRequest = .artist(library.album(for: track)?.artist ?? track.artist) } label: {
-                Label("Aller à l'artiste", systemImage: "music.mic")
-            }
-            if library.albumCredits[track.albumKey] != nil {
-                Button { showCredits = true } label: { Label("Crédits", systemImage: "person.2") }
-            }
-            Button { showAnnotations = true } label: {
-                let n = AnnotationStore.shared.count(for: track.id)
-                Label(n > 0 ? "Annotations (\(n))" : "Annotations", systemImage: "text.bubble")
-            }
-            if manageMode {
-                Button { showEditor = true } label: { Label("Modifier le son", systemImage: "pencil") }
-            }
-            if let playlistContext {
-                Button(role: .destructive) {
-                    var p = playlistContext
-                    if let i = p.trackIds.firstIndex(of: track.id) { p.trackIds.remove(at: i) }
-                    Task { await library.savePlaylist(p) }
-                } label: { Label("Retirer de la playlist", systemImage: "minus.circle") }
+            Section {
+                if let onAnnotate {
+                    Button(action: onAnnotate) { Label("Annoter ce passage", systemImage: "square.and.pencil") }
+                }
+                Button { showAnnotations = true } label: {
+                    let n = AnnotationStore.shared.count(for: track.id)
+                    Label(n > 0 ? "Annotations (\(n))" : "Annotations", systemImage: "text.bubble")
+                }
+                if nowPlaying {
+                    sleepTimerMenu
+                }
+                if let onParty {
+                    Button(action: onParty) { Label("Écouter avec quelqu'un", systemImage: "person.2.wave.2") }
+                }
+                if manageMode {
+                    Button { showEditor = true } label: { Label("Modifier le son", systemImage: "pencil") }
+                }
+                if let playlistContext {
+                    Button(role: .destructive) {
+                        var p = playlistContext
+                        if let i = p.trackIds.firstIndex(of: track.id) { p.trackIds.remove(at: i) }
+                        Task { await library.savePlaylist(p) }
+                    } label: { Label("Retirer de la playlist", systemImage: "minus.circle") }
+                }
             }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(nowPlaying ? Color.white : Color.secondary)
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
         }
+        .accessibilityLabel("Plus d'options")
         .sheet(isPresented: $showCredits) { TrackCreditsSheet(track: track) }
         .sheet(isPresented: $showEditor) { TrackEditorView(track: track) }
         .sheet(isPresented: $showAnnotations) { AnnotationsListSheet(track: track) }
         .sheet(isPresented: $showStory) { StoryCardSheet(track: track) }
+    }
+
+    /// Minuterie de mise en veille (avant : un bouton « lune » dans le lecteur).
+    private var sleepTimerMenu: some View {
+        let active = player.sleepTimerEnd != nil || player.stopAtEndOfTrack
+        return Menu {
+            if let end = player.sleepTimerEnd {
+                Text("Arrêt à \(end.formatted(date: .omitted, time: .shortened))")
+            } else if player.stopAtEndOfTrack {
+                Text("Arrêt à la fin du morceau")
+            }
+            Button("15 minutes") { player.setSleepTimer(minutes: 15) }
+            Button("30 minutes") { player.setSleepTimer(minutes: 30) }
+            Button("45 minutes") { player.setSleepTimer(minutes: 45) }
+            Button("1 heure") { player.setSleepTimer(minutes: 60) }
+            Button("À la fin du morceau") { player.sleepAtEndOfTrack() }
+            if active {
+                Button("Désactiver la minuterie", role: .destructive) { player.setSleepTimer(minutes: nil) }
+            }
+        } label: {
+            Label(active ? "Minuterie (active)" : "Minuterie", systemImage: active ? "moon.zzz.fill" : "moon.zzz")
+        }
     }
 }
 
