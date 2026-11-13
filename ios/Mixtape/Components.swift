@@ -306,7 +306,7 @@ struct TrackMenu: View {
                 } label: { Label("Ajouter à une playlist", systemImage: "text.badge.plus") }
                 Menu {
                     Button { ShareManager.shared.share(track, api: library.api) } label: {
-                        Label("Partager le son", systemImage: "square.and.arrow.up")
+                        Label("Envoyer le fichier MP3", systemImage: "doc.badge.arrow.up")
                     }
                     Button { ShareManager.shared.shareListenLink(track, api: library.api) } label: {
                         Label("Lien d'écoute (24 h)", systemImage: "link")

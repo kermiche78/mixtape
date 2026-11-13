@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// Partage du fichier audio d'un son (iMessage, WhatsApp, AirDrop…).
 @MainActor
@@ -20,11 +21,26 @@ final class ShareManager: ObservableObject {
             let file = await prepareFile(for: track, api: api)
             preparing = nil
             if let file {
-                present(file)
+                presentAsDocument(file)
             } else {
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
             }
         }
+    }
+
+    /// Envoie le son comme un vrai fichier MP3 (pièce jointe « document »)
+    /// et non comme un message audio : on le présente aux autres apps comme
+    /// un fichier générique, en gardant son nom « Artiste - Titre.mp3 ».
+    private func presentAsDocument(_ file: URL) {
+        let provider = NSItemProvider()
+        provider.suggestedName = file.lastPathComponent
+        provider.registerFileRepresentation(forTypeIdentifier: UTType.data.identifier,
+                                            fileOptions: [],
+                                            visibility: .all) { completion in
+            completion(file, false, nil)
+            return nil
+        }
+        presentItems([provider])
     }
 
     /// Envoie un lien d'écoute (valable 24 h) : ton pote écoute le son dans Safari, sans rien installer.
