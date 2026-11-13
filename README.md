@@ -14,3 +14,8 @@ Chaque modification du dossier `ios` déclenche une compilation sur GitHub (ongl
 `https://github.com/kermiche78/mixtape/releases/latest/download/Mixtape.ipa`
 
 Ouvre ce lien sur l'iPhone, puis installe le fichier avec SideStore.
+
+### Mises à jour directement dans SideStore (sans Safari)
+Ajoute une seule fois cette source dans SideStore (onglet Sources → +) :
+`https://github.com/kermiche78/mixtape/releases/latest/download/source.json`
+Ensuite, chaque nouvelle version apparaît dans l'onglet « Mes apps » → Mettre à jour.

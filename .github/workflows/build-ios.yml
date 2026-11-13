@@ -80,6 +80,47 @@ jobs:
           done
           exit 1
 
+      - name: Fabriquer la source SideStore (mises a jour sans Safari)
+        working-directory: ios
+        env:
+          BUILD: ${{ github.run_number }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          python3 - <<'PY'
+          import json, os, datetime
+          build = os.environ["BUILD"]
+          repo = "https://github.com/kermiche78/mixtape"
+          note = (os.environ.get("MESSAGE") or "Nouvelle version").splitlines()[0]
+          source = {
+            "name": "Mixtape",
+            "identifier": "com.kermiche.mixtape.source",
+            "subtitle": "Mon lecteur de musique privé",
+            "iconURL": "https://raw.githubusercontent.com/kermiche78/mixtape/main/ios/Mixtape/Assets.xcassets/AppIcon.appiconset/icon-1024.png",
+            "apps": [{
+              "name": "Mixtape",
+              "bundleIdentifier": "com.kermiche.mixtape",
+              "developerName": "Kermiche",
+              "subtitle": "Ma musique, façon Apple Music",
+              "localizedDescription": "Lecteur de musique privé relié au serveur de la maison.",
+              "iconURL": "https://raw.githubusercontent.com/kermiche78/mixtape/main/ios/Mixtape/Assets.xcassets/AppIcon.appiconset/icon-1024.png",
+              "tintColor": "#FA2D48",
+              "versions": [{
+                "version": f"1.{build}",
+                "buildVersion": build,
+                "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "localizedDescription": note,
+                "downloadURL": f"{repo}/releases/download/build-{build}/Mixtape.ipa",
+                "size": os.path.getsize("Mixtape.ipa"),
+                "minOSVersion": "17.0"
+              }],
+              "appPermissions": {"entitlements": [], "privacy": {}}
+            }],
+            "news": []
+          }
+          json.dump(source, open("source.json", "w"), ensure_ascii=False, indent=2)
+          PY
+          cat source.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: Mixtape-ipa
@@ -91,5 +132,7 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Mixtape (build ${{ github.run_number }})
           body: Fichier a installer avec SideStore.
-          files: ios/Mixtape.ipa
+          files: |
+            ios/Mixtape.ipa
+            ios/source.json
           make_latest: true
