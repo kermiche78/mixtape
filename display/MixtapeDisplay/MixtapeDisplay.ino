@@ -112,6 +112,13 @@ struct Track {
   String coverKey;
 };
 
+struct Star { int16_t x, y; uint8_t size; uint8_t phase; };
+struct Button {
+  uint8_t pin;
+  bool down = false, longDone = false;
+  uint32_t since = 0;
+};
+
 static SemaphoreHandle_t lock;
 static Track mix;  // venant de Mixtape
 static Track ams;  // venant de l'iPhone (toutes les apps)
@@ -334,6 +341,8 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   }
 };
 
+static void startAdvertising();
+
 static void startBluetooth() {
   NimBLEDevice::init("Ecran Swag");
   NimBLEDevice::setMTU(517);
@@ -342,7 +351,6 @@ static void startBluetooth() {
 
   server = NimBLEDevice::createServer();
   server->setCallbacks(new ServerCallbacks());
-  server->advertiseOnDisconnect(true);
 
   NimBLEService* svc = server->createService(MIX_SERVICE);
   NimBLECharacteristic* input = svc->createCharacteristic(MIX_INPUT, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
@@ -352,26 +360,48 @@ static void startBluetooth() {
   svc->start();
   server->start();
 
-  // Annonce : demande l'Apple Media Service (l'écran apparaît dans Réglages › Bluetooth)
+  startAdvertising();
+}
+
+// Annonce : demande l'Apple Media Service (l'écran apparaît dans Réglages › Bluetooth)
+static const uint8_t SOLICIT[] = {17, 0x15, 0xDC, 0xF8, 0x55, 0xAD, 0x02, 0xC5, 0xF4, 0x8E,
+                                  0x3A, 0x43, 0x36, 0x0F, 0x2B, 0x50, 0xD3, 0x89};
+
+static void startAdvertising() {
+#if CONFIG_BT_NIMBLE_EXT_ADV
+  NimBLEExtAdvertisement adv(BLE_HCI_LE_PHY_1M, BLE_HCI_LE_PHY_1M);
+  adv.setLegacyAdvertising(true);
+  adv.setConnectable(true);
+  adv.setScannable(true);
+  adv.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
+  adv.addData(SOLICIT, sizeof(SOLICIT));
+  NimBLEExtAdvertisement scan(BLE_HCI_LE_PHY_1M, BLE_HCI_LE_PHY_1M);
+  scan.setLegacyAdvertising(true);
+  scan.setConnectable(true);
+  scan.setScannable(true);
+  scan.addServiceUUID(NimBLEUUID(MIX_SERVICE));
+  scan.setName("Ecran Swag");
+  NimBLEExtAdvertising* a = NimBLEDevice::getAdvertising();
+  a->setInstanceData(0, adv);
+  a->setScanResponseData(0, scan);
+  a->start(0);
+#else
   NimBLEAdvertisementData adv;
   adv.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
-  const uint8_t solicit[] = {17, 0x15, 0xDC, 0xF8, 0x55, 0xAD, 0x02, 0xC5, 0xF4, 0x8E,
-                             0x3A, 0x43, 0x36, 0x0F, 0x2B, 0x50, 0xD3, 0x89};
-  adv.addData(solicit, sizeof(solicit));
+  adv.addData(SOLICIT, sizeof(SOLICIT));
   NimBLEAdvertisementData scan;
   scan.addServiceUUID(NimBLEUUID(MIX_SERVICE));
   scan.setName("Ecran Swag");
-
   NimBLEAdvertising* a = NimBLEDevice::getAdvertising();
   a->setAdvertisementData(adv);
   a->setScanResponseData(scan);
   a->enableScanResponse(true);
   a->start();
+#endif
 }
 
 // ---------- Dessin ----------
 
-struct Star { int16_t x, y; uint8_t size; uint8_t phase; };
 static const Star STARS[] = {
     {26, 22, 4, 0}, {290, 20, 6, 3}, {60, 136, 6, 6}, {286, 130, 4, 2}, {166, 148, 3, 5},
     {134, 16, 3, 1}, {226, 52, 3, 7}, {14, 84, 3, 4}, {306, 82, 3, 0}, {100, 60, 2, 3},
@@ -523,11 +553,6 @@ static void drawText(const String& txt, uint32_t t) {
 
 // ---------- Boutons ----------
 
-struct Button {
-  uint8_t pin;
-  bool down = false, longDone = false;
-  uint32_t since = 0;
-};
 static Button btnHigh{PIN_BTN_HIGH}, btnLow{PIN_BTN_LOW};
 
 static void cycleMode() {
@@ -609,6 +634,7 @@ void loop() {
     needAms = false;
     amsRemote = nullptr;
     if (amsClient) { NimBLEDevice::deleteClient(amsClient); amsClient = nullptr; }
+    startAdvertising();
     xSemaphoreTake(lock, portMAX_DELAY);
     mixActive = false;
     ams = Track();
