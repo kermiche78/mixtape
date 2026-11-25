@@ -19,3 +19,6 @@ Ouvre ce lien sur l'iPhone, puis installe le fichier avec SideStore.
 Ajoute une seule fois cette source dans SideStore (onglet Sources → +) :
 `https://github.com/kermiche78/mixtape/releases/latest/download/source.json`
 Ensuite, chaque nouvelle version apparaît dans l'onglet « Mes apps » → Mettre à jour.
+
+## Écran Swag (LilyGO T-Display S3)
+Affiche le son en cours (avec la pochette depuis Mixtape) ou ton texte perso. Installation et branchement : [display/README.md](display/README.md).

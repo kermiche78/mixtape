@@ -31,7 +31,9 @@ jobs:
             --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB" \
             --export-binaries --output-dir build display/MixtapeDisplay
           ls -lh build
-          cp build/MixtapeDisplay.ino.merged.bin EcranSwag.bin
+          # Enlève le vide à la fin du fichier (16 Mo → environ 1 Mo, plus rapide à installer)
+          python3 -c "d=open('build/MixtapeDisplay.ino.merged.bin','rb').read().rstrip(b'\xff'); open('EcranSwag.bin','wb').write(d + b'\xff'*((-len(d))%4096))"
+          ls -lh EcranSwag.bin
 
       - name: Publier le fichier à installer
         env:
