@@ -606,8 +606,12 @@ final class PlayerModel: ObservableObject {
     private func updateNowPlayingInfo() {
         guard let track = current else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            DisplayLink.shared.nowPlaying(track: nil, artwork: nil, playing: false, elapsed: 0, duration: 0)
             return
         }
+        // Écran Swag (T-Display S3) : titre, position et pochette.
+        DisplayLink.shared.nowPlaying(track: track, artwork: artworkCache[track.id], playing: isPlaying,
+                                      elapsed: currentTime, duration: duration)
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
             MPMediaItemPropertyArtist: track.displayArtist,

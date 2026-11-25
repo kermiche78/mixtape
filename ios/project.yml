@@ -43,6 +43,8 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIBackgroundModes:
           - audio
+          - bluetooth-central
+        NSBluetoothAlwaysUsageDescription: "Mixtape envoie le son en cours et sa pochette à ton écran T-Display."
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true

@@ -22,6 +22,7 @@ struct MixtapeApp: App {
                     AppObjects.shared.player = player
                     SmartPlaylistStore.shared.attach(library)
                     player.restoreSession()
+                    DisplayLink.shared.startIfConfigured()
                 }
         }
     }

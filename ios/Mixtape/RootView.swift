@@ -382,6 +382,7 @@ struct SettingsView: View {
     @ObservedObject private var backup = BackupManager.shared
     @State private var confirmRestore = false
     @State private var showListenTogether = false
+    @ObservedObject private var displayLink = DisplayLink.shared
 
     var body: some View {
         List {
@@ -432,6 +433,21 @@ struct SettingsView: View {
                 Text("Icône de l'app")
             } footer: {
                 Text("Pour ta propre icône : envoie l'image à Claude, ou glisse-la sur GitHub dans le dossier ios/icons en la nommant « perso ». Elle apparaît ici à la prochaine mise à jour.")
+            }
+            Section {
+                NavigationLink {
+                    DisplaySettingsView()
+                } label: {
+                    LabeledContent {
+                        Text(displayLink.status.label)
+                    } label: {
+                        Label("Écran T-Display", systemImage: "display")
+                    }
+                }
+            } header: {
+                Text("Écran")
+            } footer: {
+                Text("Affiche le son en cours et sa pochette sur ton écran LilyGO, ou ton texte perso.")
             }
             Section {
                 NavigationLink {
