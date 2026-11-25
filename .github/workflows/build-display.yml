@@ -1,0 +1,43 @@
+name: Compiler le programme de l'écran
+
+on:
+  push:
+    branches: [main]
+    paths: ["display/**", ".github/workflows/build-display.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Installer la carte ESP32 et les bibliothèques
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install "NimBLE-Arduino" "LovyanGFX"
+
+      - name: Compiler pour le T-Display S3
+        run: |
+          arduino-cli compile \
+            --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB" \
+            --export-binaries --output-dir build display/MixtapeDisplay
+          ls -lh build
+          cp build/MixtapeDisplay.ino.merged.bin EcranSwag.bin
+
+      - name: Publier le fichier à installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ecran >/dev/null 2>&1 || \
+            gh release create ecran --prerelease --latest=false --title "Écran Swag (T-Display S3)" \
+              --notes "Programme de l'écran. Installe EcranSwag.bin avec l'installeur web (voir display/README.md)."
+          gh release upload ecran EcranSwag.bin --clobber
